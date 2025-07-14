@@ -1552,7 +1552,7 @@ class TrainingArguments:
     )
 
     average_tokens_across_devices: Optional[bool] = field(
-        default=False,
+        default=True,
         metadata={
             "help": "Whether or not to average tokens across devices. If enabled, will use all_reduce to "
             "synchronize num_tokens_in_batch for precise loss calculation. Reference: "
