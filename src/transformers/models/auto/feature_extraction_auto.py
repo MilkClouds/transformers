@@ -87,7 +87,9 @@ FEATURE_EXTRACTOR_MAPPING_NAMES = OrderedDict(
     ]
 )
 
-FEATURE_EXTRACTOR_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, FEATURE_EXTRACTOR_MAPPING_NAMES)
+FEATURE_EXTRACTOR_MAPPING = _LazyAutoMapping(
+    CONFIG_MAPPING_NAMES, FEATURE_EXTRACTOR_MAPPING_NAMES, registry_key="feature_extractor"
+)
 
 
 def feature_extractor_class_from_name(class_name: str):

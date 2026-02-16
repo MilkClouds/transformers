@@ -549,15 +549,25 @@ class _LazyAutoMapping(OrderedDict[type[PreTrainedConfig], _LazyAutoMappingValue
     Args:
         - config_mapping: The map model type to config class
         - model_mapping: The map model type to model (or tokenizer) class
+        - registry_key: Optional key into the unified REGISTRY. When set,
+          built-in lookups are delegated to REGISTRY[registry_key] instead of
+          resolving through _model_mapping + importlib.
     """
 
-    def __init__(self, config_mapping, model_mapping) -> None:
+    def __init__(self, config_mapping, model_mapping, registry_key=None) -> None:
         self._config_mapping = config_mapping
         self._reverse_config_mapping = {v: k for k, v in config_mapping.items()}
         self._model_mapping = model_mapping
         self._model_mapping._model_mapping = self
         self._extra_content = {}
         self._modules = {}
+        self._registry_key = registry_key
+
+    def _get_registry(self):
+        """Lazy import to avoid circular dependency."""
+        from ..._registry import REGISTRY
+
+        return REGISTRY
 
     def __len__(self) -> int:
         common_keys = set(self._config_mapping.keys()).intersection(self._model_mapping.keys())
@@ -567,6 +577,13 @@ class _LazyAutoMapping(OrderedDict[type[PreTrainedConfig], _LazyAutoMappingValue
         if key in self._extra_content:
             return self._extra_content[key]
         model_type = self._reverse_config_mapping[key.__name__]
+
+        # Phase 2 delegation: use REGISTRY if available
+        if self._registry_key is not None:
+            registry = self._get_registry()
+            if model_type in registry[self._registry_key].data:
+                return registry[self._registry_key][model_type]
+
         if model_type in self._model_mapping:
             model_name = self._model_mapping[model_type]
             return self._load_attr_from_module(model_type, model_name)

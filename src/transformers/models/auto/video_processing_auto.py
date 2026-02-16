@@ -90,7 +90,9 @@ for model_type, video_processors in VIDEO_PROCESSOR_MAPPING_NAMES.items():
 
     VIDEO_PROCESSOR_MAPPING_NAMES[model_type] = fast_video_processor_class
 
-VIDEO_PROCESSOR_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, VIDEO_PROCESSOR_MAPPING_NAMES)
+VIDEO_PROCESSOR_MAPPING = _LazyAutoMapping(
+    CONFIG_MAPPING_NAMES, VIDEO_PROCESSOR_MAPPING_NAMES, registry_key="video_processor"
+)
 
 
 def video_processor_class_from_name(class_name: str):

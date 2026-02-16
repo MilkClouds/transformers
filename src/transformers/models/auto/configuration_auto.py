@@ -1127,11 +1127,24 @@ class _LazyConfigMapping(OrderedDict[str, type[PreTrainedConfig]]):
         self._extra_content = {}
         self._modules = {}
 
+    def _get_registry(self):
+        """Lazy import to avoid circular dependency."""
+        from ..._registry import REGISTRY
+
+        return REGISTRY
+
     def __getitem__(self, key: str) -> type[PreTrainedConfig]:
         if key in self._extra_content:
             return self._extra_content[key]
         if key not in self._mapping:
             raise KeyError(key)
+
+        # Phase 2 delegation: use REGISTRY["config"] for built-in lookups
+        registry = self._get_registry()
+        if key in registry["config"].data:
+            return registry["config"][key]
+
+        # Fallback to original resolution path
         value = self._mapping[key]
         module_name = model_type_to_module_name(key)
         if module_name not in self._modules:

@@ -172,7 +172,7 @@ PROCESSOR_MAPPING_NAMES = OrderedDict(
     ]
 )
 
-PROCESSOR_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, PROCESSOR_MAPPING_NAMES)
+PROCESSOR_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, PROCESSOR_MAPPING_NAMES, registry_key="processor")
 
 
 def processor_class_from_name(class_name: str):
