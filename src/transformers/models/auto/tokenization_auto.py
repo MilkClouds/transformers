@@ -39,7 +39,6 @@ from .configuration_auto import (
     CONFIG_MAPPING_NAMES,
     AutoConfig,
     config_class_to_model_type,
-    model_type_to_module_name,
     replace_list_option_in_docstrings,
 )
 
@@ -367,27 +366,22 @@ def tokenizer_class_from_name(class_name: str) -> type[Any] | None:
     if class_name == "TokenizersBackend":
         return TokenizersBackend
 
-    # V5: TOKENIZER_MAPPING_NAMES now maps to single strings, not tuples
-    for module_name, tokenizer_class in TOKENIZER_MAPPING_NAMES.items():
-        if tokenizer_class == class_name:
-            module_name = model_type_to_module_name(module_name)
-            if (
-                module_name in ["mistral", "mistral3", "mixtral", "ministral", "ministral3", "pixtral", "voxtral"]
-                and class_name == "MistralCommonBackend"
-            ):
-                module = importlib.import_module(".tokenization_mistral_common", "transformers")
-            else:
-                module = importlib.import_module(f".{module_name}", "transformers.models")
-            try:
-                return getattr(module, class_name)
-            except AttributeError:
-                continue
+    # MistralCommonBackend lives in a non-standard module path
+    if class_name == "MistralCommonBackend":
+        module = importlib.import_module(".tokenization_mistral_common", "transformers")
+        return getattr(module, class_name)
+
+    # Use the unified registry for standard lookups
+    from ..._registry import class_from_name
+
+    result = class_from_name("tokenizer", class_name)
+    if result is not None:
+        return result
 
     for tokenizer in TOKENIZER_MAPPING._extra_content.values():
         if getattr(tokenizer, "__name__", None) == class_name:
             return tokenizer
 
-    # We did not find the class, but maybe it's because a dep is missing. In that case, the class will be in the main
     # We did not find the class, but maybe it's because a dep is missing. In that case, the class will be in the main
     # init and we return the proper dummy to get an appropriate error message.
     main_module = importlib.import_module("transformers")

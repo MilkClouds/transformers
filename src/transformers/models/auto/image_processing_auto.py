@@ -40,7 +40,6 @@ from .auto_factory import _LazyAutoMapping
 from .configuration_auto import (
     CONFIG_MAPPING_NAMES,
     AutoConfig,
-    model_type_to_module_name,
     replace_list_option_in_docstrings,
 )
 
@@ -248,15 +247,13 @@ def get_image_processor_class_from_name(class_name: str):
     if class_name == "BaseImageProcessorFast":
         return BaseImageProcessorFast
 
-    for module_name, extractors in IMAGE_PROCESSOR_MAPPING_NAMES.items():
-        if class_name in extractors:
-            module_name = model_type_to_module_name(module_name)
+    from ..._registry import class_from_name
 
-            module = importlib.import_module(f".{module_name}", "transformers.models")
-            try:
-                return getattr(module, class_name)
-            except AttributeError:
-                continue
+    # Search both slow and fast image processor registries
+    for component in ("image_processor", "image_processor_fast"):
+        result = class_from_name(component, class_name)
+        if result is not None:
+            return result
 
     for extractors in IMAGE_PROCESSOR_MAPPING._extra_content.values():
         for extractor in extractors:

@@ -17,7 +17,7 @@ import importlib
 import os
 import re
 from collections import OrderedDict
-from collections.abc import Callable, Iterator, KeysView, ValuesView
+from collections.abc import Callable, Iterator
 from typing import Any, TypeVar
 
 from ...configuration_utils import PreTrainedConfig
@@ -1125,7 +1125,6 @@ class _LazyConfigMapping(OrderedDict[str, type[PreTrainedConfig]]):
     def __init__(self, mapping) -> None:
         self._mapping = mapping
         self._extra_content = {}
-        self._modules = {}
 
     def _get_registry(self):
         """Lazy import to avoid circular dependency."""
@@ -1144,13 +1143,12 @@ class _LazyConfigMapping(OrderedDict[str, type[PreTrainedConfig]]):
         if key in registry["config"].data:
             return registry["config"][key]
 
-        # Fallback to original resolution path
+        # Fallback to original resolution path (for entries not yet in registry)
         value = self._mapping[key]
         module_name = model_type_to_module_name(key)
-        if module_name not in self._modules:
-            self._modules[module_name] = importlib.import_module(f".{module_name}", "transformers.models")
-        if hasattr(self._modules[module_name], value):
-            return getattr(self._modules[module_name], value)
+        module = importlib.import_module(f".{module_name}", "transformers.models")
+        if hasattr(module, value):
+            return getattr(module, value)
 
         # Some of the mappings have entries model_type -> config of another model type. In that case we try to grab the
         # object at the top level.
@@ -1182,57 +1180,6 @@ class _LazyConfigMapping(OrderedDict[str, type[PreTrainedConfig]]):
 
 
 CONFIG_MAPPING = _LazyConfigMapping(CONFIG_MAPPING_NAMES)
-
-
-class _LazyLoadAllMappings(OrderedDict[str, str]):
-    """
-    A mapping that will load all pairs of key values at the first access (either by indexing, requestions keys, values,
-    etc.)
-
-    Args:
-        mapping: The mapping to load.
-    """
-
-    def __init__(self, mapping):
-        self._mapping = mapping
-        self._initialized = False
-        self._data = {}
-
-    def _initialize(self):
-        if self._initialized:
-            return
-
-        for model_type, map_name in self._mapping.items():
-            module_name = model_type_to_module_name(model_type)
-            module = importlib.import_module(f".{module_name}", "transformers.models")
-            mapping = getattr(module, map_name)
-            self._data.update(mapping)
-
-        self._initialized = True
-
-    def __getitem__(self, key):
-        self._initialize()
-        return self._data[key]
-
-    def keys(self) -> KeysView[str]:
-        self._initialize()
-        return self._data.keys()
-
-    def values(self) -> ValuesView[str]:
-        self._initialize()
-        return self._data.values()
-
-    def items(self) -> KeysView[str]:
-        self._initialize()
-        return self._data.keys()
-
-    def __iter__(self) -> Iterator[str]:
-        self._initialize()
-        return iter(self._data)
-
-    def __contains__(self, item: object) -> bool:
-        self._initialize()
-        return item in self._data
 
 
 def _get_class_name(model_class: str | list[str]):

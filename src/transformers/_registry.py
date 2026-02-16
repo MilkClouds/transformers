@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-Unified model registry for transformers (Phase 1 prototype).
+Unified model registry for transformers.
 
 Consolidates 51 independent OrderedDicts across 7 files into a single
-Namespace + Registry structure. This module runs alongside the existing
-auto class system — it adds, not replaces.
+Namespace + Registry structure. The auto class system delegates lookups
+to this registry; the MAPPING_NAMES dicts remain as the data source.
 
 Usage:
     from transformers._registry import REGISTRY, list_model_types, get_model_info, pprint_registry
@@ -296,6 +296,58 @@ def pprint_registry(model_type: str | None = None):
     print("Components:")
     for name, registry in sorted(REGISTRY.items()):
         print(f"  {name}: {len(registry.data)} model types")
+
+
+# ---------------------------------------------------------------------------
+# Class resolution by name (replaces 5 duplicated *_class_from_name funcs)
+# ---------------------------------------------------------------------------
+
+
+def class_from_name(component: str, class_name: str):
+    """Resolve a class name to its actual class via the registry.
+
+    Searches the given component registry for an entry whose class name
+    matches. This replaces the 5 near-identical ``*_class_from_name()``
+    functions scattered across the auto modules.
+
+    Args:
+        component: Registry component to search (e.g., "processor", "feature_extractor").
+        class_name: The class name string to look up (e.g., "CLIPProcessor").
+
+    Returns:
+        The resolved class, or None if not found.
+    """
+    from lazyregistry import ImportString
+
+    if component not in REGISTRY:
+        return None
+
+    registry = REGISTRY[component]
+    for model_type, value in registry.data.items():
+        raw = value
+        if isinstance(raw, ImportString):
+            # Check the class name portion of the import string (after ":")
+            _, name = str(raw).rsplit(":", 1)
+            if name == class_name:
+                try:
+                    return registry[model_type]  # triggers lazy load
+                except Exception:
+                    continue
+        elif isinstance(raw, tuple):
+            for i, v in enumerate(raw):
+                if isinstance(v, ImportString):
+                    _, name = str(v).rsplit(":", 1)
+                    if name == class_name:
+                        try:
+                            resolved = registry[model_type]
+                            return resolved[i] if isinstance(resolved, tuple) else resolved
+                        except Exception:
+                            continue
+                elif hasattr(v, "__name__") and v.__name__ == class_name:
+                    return v
+        elif hasattr(raw, "__name__") and raw.__name__ == class_name:
+            return raw
+    return None
 
 
 # ---------------------------------------------------------------------------

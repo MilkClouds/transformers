@@ -26,7 +26,6 @@ from .auto_factory import _LazyAutoMapping
 from .configuration_auto import (
     CONFIG_MAPPING_NAMES,
     AutoConfig,
-    model_type_to_module_name,
     replace_list_option_in_docstrings,
 )
 
@@ -93,15 +92,11 @@ FEATURE_EXTRACTOR_MAPPING = _LazyAutoMapping(
 
 
 def feature_extractor_class_from_name(class_name: str):
-    for module_name, extractors in FEATURE_EXTRACTOR_MAPPING_NAMES.items():
-        if class_name in extractors:
-            module_name = model_type_to_module_name(module_name)
+    from ..._registry import class_from_name
 
-            module = importlib.import_module(f".{module_name}", "transformers.models")
-            try:
-                return getattr(module, class_name)
-            except AttributeError:
-                continue
+    result = class_from_name("feature_extractor", class_name)
+    if result is not None:
+        return result
 
     for extractor in FEATURE_EXTRACTOR_MAPPING._extra_content.values():
         if getattr(extractor, "__name__", None) == class_name:
