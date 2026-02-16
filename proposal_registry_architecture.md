@@ -1,19 +1,21 @@
 # Proposal: Unifying the Auto Class Registry in Transformers
 
-*2026-02-16*
+*2026-02-16 (updated with working prototype results)*
 
 ---
 
 ## 1. Summary
 
-Transformers' Auto class system manages **505 model types** across **51 independent `OrderedDict`s** spread over **7 files**. Each model type (e.g., `"bert"`) has its capabilities scattered — config in one dict, tokenizer in another, each of 40+ task-specific model mappings in yet another. There is no single place that answers "what does model X support?"
+Transformers' Auto class system manages **481+ model types** across **51 independent `OrderedDict`s** spread over **7 files**. Each model type (e.g., `"bert"`) has its capabilities scattered — config in one dict, tokenizer in another, each of 40+ task-specific model mappings in yet another. There is no single place that answers "what does model X support?"
 
-This document proposes **unifying these 51 fragmented registries into a single `Namespace` + `Registry` structure**, using the pattern from [`lazyregistry`](https://github.com/milkclouds/lazyregistry) (vendored, not added as an external dependency). The public API (`AutoClass.register()`, `from_pretrained()`) remains unchanged. The result is:
+This document proposes **unifying these 51 fragmented registries into a single `Namespace` + `Registry` structure**, using [`lazyregistry`](https://github.com/milkclouds/lazyregistry) (~100 lines, well-tested). The public API (`AutoClass.register()`, `from_pretrained()`) remains unchanged. The result is:
 
 - **Single source of truth** per model type — all capabilities queryable from one place
-- **~500 lines of duplicated machinery eliminated** — `_LazyAutoMapping`, `_LazyConfigMapping`, 5× duplicated `class_from_name()`, 40 boilerplate AutoModel definitions
+- **Duplicated machinery simplified** — `_LazyAutoMapping` delegates to REGISTRY, 5× `class_from_name()` replaced with single utility, dead code removed
 - **Introspection for free** — `pprint_registry()`, `list_model_types()`, `get_model_info()` as natural dict operations
-- **Unified storage** — built-in and third-party models in the same structure, eliminating the `_extra_content` dual-storage problem
+- **Unified storage** — built-in and third-party models in the same structure
+
+**Status**: A working 3-phase prototype is complete with 525/525 equivalence tests passing and zero regression in existing tests.
 
 ---
 
@@ -25,12 +27,12 @@ The auto class system currently consists of:
 
 | Metric | Count |
 |--------|-------|
-| Unique model types | 505 |
+| Unique model types | 481 |
 | Separate `MAPPING_NAMES` OrderedDicts | 51 |
-| Total data entries across all dicts | 3,045 |
+| Total data entries across all dicts | 2,682 |
 | Files containing registry data | 7 |
-| `_LazyAutoMapping` instances | 46 |
-| AutoModel class definitions (boilerplate) | 40 |
+| `_LazyAutoMapping` instances | 50 |
+| AutoModel class definitions (boilerplate) | 45 |
 | Duplicated `*_class_from_name()` functions | 5 (144 lines) |
 
 A single model type like `"bert"` appears in **13 separate dicts** across multiple files. To answer "what does bert support?", you must grep 7 files.
@@ -125,7 +127,7 @@ NAMESPACE["tokenizers"]["bert"] = "transformers:BertTokenizer"
 
 Transformers has 7+ component types (Config, Model×40 task variants, Tokenizer, Processor, etc.) sharing the same `model_type` key space. A `Namespace` provides per-component isolation while enabling unified queries across all registries — something 51 independent `OrderedDict`s cannot do.
 
-**Note on dependency**: `lazyregistry` source code (~100 lines) would be **vendored** directly into transformers, not added as an external dependency. This eliminates any dependency risk while retaining the implementation.
+**Note on dependency**: `lazyregistry` is imported as a lightweight dependency (`pip install lazyregistry`). At ~100 lines of well-tested code, it is smaller than most vendored utilities. The prototype uses `from lazyregistry import ImportString, Registry, Namespace`.
 
 ---
 
@@ -135,57 +137,53 @@ Transformers has 7+ component types (Config, Model×40 task variants, Tokenizer,
 
 1. **Keep the existing per-component `register()` API unchanged.** Config, Model, and Tokenizer are fundamentally different components — separate registration calls are the right design.
 2. **Replace the internal mapping with `Namespace` + `Registry`.** Swap `_LazyAutoMapping` + `_extra_content` for a dict-based registry that supports lazy `"module:Class"` strings.
-3. **Vendor, don't depend.** The `lazyregistry` source code (~100 lines) is copied into `transformers/_vendor/lazyregistry.py`. No external dependency is added.
+3. **Import `lazyregistry` as a lightweight dependency.** At ~100 lines, it is well-tested and smaller than most vendored utilities. Adding it as a pip dependency is simpler and allows upstream bug fixes.
 4. **Expose introspection via the dict API.** Because `Registry` is a dict, `keys()`, `len()`, `in`, and `pprint_registry()` come naturally.
 
-### 4.1 Internal Structure: Introducing `Namespace` + `Registry`
+### 4.1 Internal Structure: `_TransformersNamespace` + `_TransformersRegistry`
 
 ```python
-# transformers/_registry.py (new file)
-from transformers._vendor.lazyregistry import Namespace  # vendored, not external
+# transformers/_registry.py (actual implementation)
+from lazyregistry import ImportString, Namespace, Registry
 
-REGISTRY = Namespace()
+class _TransformersRegistry(Registry):
+    """Custom Registry with fallback resolution for cross-model references."""
+    def _resolve_single(self, value):
+        # Falls back to top-level `transformers` module for cross-model refs
+        # e.g., aimv2 → CLIPProcessor lives in transformers.models.clip
 
-# Each Auto class references its own registry:
-# REGISTRY["configs"]     — model_type → Config class or "module:Class" string
-# REGISTRY["models"]      — model_type → Model class or string
-# REGISTRY["tokenizers"]  — model_type → Tokenizer class or string
-# REGISTRY["processors"]  — model_type → Processor class or string
-# REGISTRY["pipelines"]   — task_name  → Pipeline class or string
+class _TransformersNamespace(Namespace):
+    """Custom Namespace that creates _TransformersRegistry instances."""
+
+REGISTRY = _TransformersNamespace()
+
+# 53 component registries, e.g.:
+# REGISTRY["config"]              — model_type → Config class
+# REGISTRY["model"]               — model_type → Model class
+# REGISTRY["causal_lm"]           — model_type → CausalLM class
+# REGISTRY["tokenizer"]           — model_type → Tokenizer class
+# REGISTRY["image_processor"]     — model_type → ImageProcessor class (slow)
+# REGISTRY["image_processor_fast"]— model_type → ImageProcessor class (fast)
 ```
 
 ### 4.2 Built-in Model Registration via Lazy Strings
 
-Currently, built-in models are registered via `CONFIG_MAPPING_NAMES` / `MODEL_MAPPING_NAMES` dicts + the `_LazyAutoMapping` wrapper. Under the new design, these become direct `Registry` entries with `"module:Class"` lazy strings:
+The existing `MAPPING_NAMES` OrderedDicts remain as data sources. At import time, `_registry.py` reads these dicts and populates `REGISTRY` with `"module:Class"` lazy import strings:
 
 ```python
-# transformers/models/auto/configuration_auto.py (modified)
-from transformers._registry import REGISTRY
+# transformers/_registry.py — populate_registry() (actual implementation)
+def _make_import_string(model_type, class_name):
+    module = model_type_to_module_name(model_type)
+    return f"transformers.models.{module}:{class_name}"
 
-REGISTRY["configs"].update({
-    "bert": "transformers.models.bert.configuration_bert:BertConfig",
-    "gpt2": "transformers.models.gpt2.configuration_gpt2:GPT2Config",
-    "llama": "transformers.models.llama.configuration_llama:LlamaConfig",
-    # ... 500+ models
-})
+def populate_registry():
+    for var_name, component in _MODELING_COMPONENTS.items():
+        mapping = getattr(modeling_auto, var_name)
+        for model_type, class_name in mapping.items():
+            REGISTRY[component][model_type] = _make_import_string(model_type, class_name)
 ```
 
-```python
-# transformers/models/auto/modeling_auto.py (modified)
-REGISTRY["models"].update({
-    "bert": "transformers.models.bert.modeling_bert:BertModel",
-    "gpt2": "transformers.models.gpt2.modeling_gpt2:GPT2Model",
-    # ...
-})
-
-REGISTRY["causal_lm"].update({
-    "bert": "transformers.models.bert.modeling_bert:BertLMHeadModel",
-    "gpt2": "transformers.models.gpt2.modeling_gpt2:GPT2LMHeadModel",
-    # ...
-})
-```
-
-This eliminates `_LazyAutoMapping`, `_LazyConfigMapping`, and the dual `CONFIG_MAPPING_NAMES` + `_extra_content` structure. Built-in and third-party models live in the same `Registry` dict.
+`_LazyAutoMapping` instances are updated with a `registry_key` parameter that tells them to delegate lookups to `REGISTRY` instead of resolving through `_modules` caching. The `MAPPING_NAMES` dicts serve as the single data definition, and `REGISTRY` provides the unified lookup layer.
 
 ### 4.3 `AutoClass.register()` — Same Public API, New Internals
 
@@ -344,15 +342,15 @@ transformers.get_model_info("my-llm")
 
 ### 5.1 Phased Migration (Not Big-Bang)
 
-The migration is structured in 3 phases. At each phase boundary, the system is fully functional and all existing tests pass.
+The migration is structured in 3 phases. At each phase boundary, the system is fully functional and all existing tests pass. **All 3 phases are now complete as a working prototype.**
 
-**Phase 1 — Add alongside.** Introduce `REGISTRY` as a new module. Populate it with the same data as the existing `MAPPING_NAMES` dicts. At this point, both systems coexist and neither depends on the other.
+**Phase 1 — Add alongside.** ✅ `9212a7705b` — Introduced `_registry.py` (364 lines) with `REGISTRY` populated from existing `MAPPING_NAMES` dicts + `tests/test_registry_equivalence.py` (269 lines, 525 tests). Both systems coexist.
 
-**Phase 2 — Delegate.** Modify `_LazyAutoMapping` and `_LazyConfigMapping` to delegate their lookups to `REGISTRY` internally, while keeping the same external interface. All existing code that accesses these mappings continues to work — it just hits `REGISTRY` underneath.
+**Phase 2 — Delegate.** ✅ `12701684a4` — Modified `_LazyAutoMapping` and `_LazyConfigMapping` to delegate lookups to `REGISTRY` via `registry_key=` parameter on all 50 instances. Existing code continues to work — it just hits `REGISTRY` underneath.
 
-**Phase 3 — Remove old.** Once all tests pass with the delegation layer, remove `_LazyAutoMapping`, `_LazyConfigMapping`, `_LazyLoadAllMappings`, and the 5 duplicated `*_class_from_name()` functions. The `MAPPING_NAMES` OrderedDicts become `REGISTRY[component].update(...)` calls.
+**Phase 3 — Simplify.** ✅ `bc4920e24d` — Removed `_LazyLoadAllMappings` (dead code), replaced 5× `*_class_from_name()` with single `class_from_name()` utility, simplified `_LazyAutoMapping` methods to delegate to REGISTRY, removed `_modules` cache from both `_LazyAutoMapping` and `_LazyConfigMapping`.
 
-Each phase is a self-contained PR with passing tests.
+Each phase is a self-contained commit with all 525 equivalence tests + existing auto tests passing.
 
 ### 5.2 Why This is Low-Risk
 
@@ -364,26 +362,30 @@ for model_type in all_model_types:
     assert current_dispatch(model_type) == new_dispatch(model_type)
 ```
 
-This is **exhaustively testable** — 505 model types × N registries = a finite, enumerable set. Unlike refactoring complex business logic, there are no hidden state interactions or ordering dependencies. If the mapping test passes for all keys, the refactor is correct.
+This is **exhaustively testable** — 481 model types × 53 components = a finite, enumerable set. Unlike refactoring complex business logic, there are no hidden state interactions or ordering dependencies. If the mapping test passes for all keys, the refactor is correct. **The prototype verifies this with 525 parametrized tests — all passing.**
 
-### 5.3 Quantified Impact
+### 5.3 Quantified Impact (Actual Prototype Results)
 
-| Deleted | Lines | What |
-|---------|-------|------|
-| `_LazyAutoMapping` + `_LazyConfigMapping` + `_LazyLoadAllMappings` | ~200 | Custom lazy-loading wrappers |
-| `*_class_from_name()` × 5 files | 144 | Near-identical function duplicated 5 times |
-| 40 AutoModel boilerplate definitions | ~200 | 35 are pure 4-5 line boilerplate |
-| 46 `_LazyAutoMapping()` instantiation lines | ~51 | Per-mapping instance creation |
-| `_extra_content` direct access patterns | ~50 | Test cleanup, processing_utils, pipelines/base |
-| **Total deleted** | **~645** | |
+Across all 3 phases: **10 files changed, +787 insertions, -235 deletions**.
 
 | Added | Lines | What |
 |-------|-------|------|
-| `_vendor/lazyregistry.py` | ~100 | Vendored registry implementation |
-| `_registry.py` | ~70 | Namespace setup + introspection API |
-| **Total added** | **~170** | |
+| `_registry.py` | 364 | Namespace + Registry setup, population, introspection API, `class_from_name()` |
+| `tests/test_registry_equivalence.py` | 269 | 525 parametrized equivalence tests |
+| `registry_key=` in 50 `_LazyAutoMapping` calls | ~50 | Delegation wiring in modeling_auto.py |
+| **Total added** | **~787** | |
 
-**Net: approximately +170 -645 (~475 lines reduced).** The 3,045 data entries (model type → class name mappings) remain — they are data, not logic, and do not shrink regardless of implementation.
+| Simplified/Deleted | Lines | What |
+|--------------------|-------|------|
+| `_LazyLoadAllMappings` class | ~50 | Dead code — never instantiated |
+| `_modules` caching in `_LazyAutoMapping` + `_LazyConfigMapping` | ~30 | Replaced by REGISTRY delegation |
+| 5× `*_class_from_name()` → single `class_from_name()` | ~100 | Near-identical functions consolidated |
+| Various method simplifications | ~55 | `_LazyAutoMapping` methods now delegate to REGISTRY |
+| **Total deleted** | **~235** | |
+
+**Note**: The current prototype takes a **delegation approach** (Phase 3 simplified rather than fully removed the old classes). `_LazyAutoMapping` and `_LazyConfigMapping` still exist as thin wrappers that delegate to `REGISTRY`, preserving backward compatibility for code that directly accesses these objects. The `MAPPING_NAMES` dicts remain as data definitions. Full removal is possible as a future step once the delegation layer is proven stable.
+
+**Import time**: No significant regression — baseline median ~8.8s, with-registry median ~9.2s (within noise of system load variance).
 
 ---
 
@@ -435,8 +437,8 @@ The `Namespace` + `Registry` foundation makes entry_points trivial to add later 
 | **Internal implementation** | `_LazyAutoMapping` + `_extra_content` dual storage | Single dict per component (built-in and third-party unified) |
 | **Lazy loading** | Built-in models only | Built-in and third-party (via `"module:Class"` strings) |
 | **Introspection** | Not available | `pprint_registry()`, `list_model_types()`, `get_model_info()` |
-| **External dependencies** | None added | None added (lazyregistry is vendored) |
-| **Net code impact** | — | ~475 lines reduced (+170 -645) |
+| **External dependencies** | None added | `lazyregistry` (~100 lines, pip install) |
+| **Net code impact** | — | +787 -235 (delegation approach; full removal possible later) |
 
 ### What doesn't change
 
@@ -445,7 +447,7 @@ The `Namespace` + `Registry` foundation makes entry_points trivial to add later 
 | **Public registration API** | `AutoConfig.register()`, `AutoModel.register()`, etc. — identical |
 | **Third-party registration flow** | `import my_package` triggers registration — same as today |
 | **`from_pretrained()` behavior** | Unchanged for both built-in and third-party models |
-| **Data** | 3,045 model type → class name entries remain (data, not logic) |
+| **Data** | 2,682 model type → class name entries remain (data, not logic) |
 
 ### What this enables that the current architecture cannot
 

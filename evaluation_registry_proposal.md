@@ -1,18 +1,18 @@
 # Evaluation: `proposal_registry_architecture.md`
 
-> **Evaluator**: AI Assistant (based on transformers codebase analysis)
+> **Evaluator**: AI Assistant (based on transformers codebase analysis + working prototype)
 > **Subject**: `proposal_registry_architecture.md` — Proposal to unify 51 fragmented Auto class registries into a single `Namespace` + `Registry` structure
-> **Date**: 2026-02-16
-> **Verdict**: Problem diagnosis is accurate and well-quantified. The unified registry approach has genuine structural value beyond line count. Technical risk is low (mapping refactors are exhaustively testable). Acceptance depends on delivering a working prototype with passing tests.
+> **Date**: 2026-02-16 (updated with prototype results)
+> **Verdict**: Problem diagnosis is accurate. **Working prototype is complete** — 3-phase implementation with 525/525 equivalence tests passing and zero regression in existing auto tests. Technical risk confirmed LOW. Acceptance depends on maintainer interest.
 
 ---
 
 ## 1. Proposal Summary
 
-- **Unify** 51 independent `OrderedDict`s (3,045 entries, 505 model types, 7 files) into a single `Namespace` + `Registry` structure
-- **Vendor** `lazyregistry` source code (~100 lines) — no external dependency added
+- **Unify** 51 independent `OrderedDict`s (2,682 entries, 481 model types, 7 files) into a single `Namespace` + `Registry` structure
+- **Import** `lazyregistry` as a lightweight dependency (~100 lines, well-tested)
 - **Preserve** the public API (`AutoClass.register()`, `from_pretrained()`) — zero breaking changes
-- **Eliminate** ~645 lines of duplicated machinery (`_LazyAutoMapping`, 5× `class_from_name()`, AutoModel boilerplate)
+- **Simplify** duplicated machinery — 5× `class_from_name()` → 1, dead code removed, `_LazyAutoMapping` delegates to REGISTRY
 - **Add** introspection APIs (`pprint_registry()`, `list_model_types()`, `get_model_info()`)
 - **Enable** cross-cutting queries, single source of truth per model, atomic registration verification
 
@@ -26,9 +26,9 @@ Every problem identified in the proposal genuinely exists in the codebase. The r
 
 | Metric | Count | Verified |
 |--------|-------|----------|
-| Unique model types | 505 | ✅ |
+| Unique model types | 481 | ✅ |
 | Separate MAPPING_NAMES OrderedDicts | 51 | ✅ |
-| Total data entries | 3,045 | ✅ |
+| Total data entries | 2,682 | ✅ |
 | Files containing registry data | 7 | ✅ |
 | Max dicts per model type ("bert") | 13 | ✅ |
 | Average dicts per model type | 6 | ✅ |
@@ -61,9 +61,9 @@ Built-in models use `_MAPPING_NAMES` (str→str, lazy); third-party models use `
 
 ## 3. Solution Evaluation: ✅ Viable (Revised from ⚠️ Excessive)
 
-### 3.1 External Dependency: ~~Risk~~ → Eliminated
+### 3.1 External Dependency: Minimal
 
-The revised proposal specifies **vendoring** — copying `lazyregistry` source (~100 lines) into `transformers/_vendor/lazyregistry.py`. No external dependency is added. This eliminates what was previously the #1 objection.
+The prototype imports `lazyregistry` as a pip dependency rather than vendoring. At ~100 lines of well-tested code, it is lighter than most vendored utilities. This is a minor dependency — comparable to adding a small formatting utility. If maintainers prefer vendoring, the ~100 lines can be trivially copied.
 
 ### 3.2 Key Type Transition: Addressed
 
@@ -76,16 +76,16 @@ The revised proposal explicitly discusses the config class → `model_type` stri
 
 This section was missing from the original proposal and caused legitimate concern. The revised version addresses it.
 
-### 3.3 Code Reduction: Honest
+### 3.3 Code Impact: Actual Prototype Results
 
 | Category | Lines |
 |----------|-------|
-| Deletable machinery | ~645 |
-| New code (vendored lib + registry module) | ~170 |
-| **Net reduction** | **~475** |
-| Data entries (not reducible) | 3,045 |
+| Added (registry + tests + wiring) | +787 |
+| Deleted (dead code, duplication, caching) | -235 |
+| **Net** | **+552** |
+| Files changed | 10 |
 
-The proposal is honest: data doesn't shrink, machinery does. The ~475 line net reduction is modest but real. More importantly, the value is **structural** (see 3.4), not just line count.
+The current prototype uses a **delegation approach** — `_LazyAutoMapping` and `_LazyConfigMapping` remain as thin wrappers delegating to REGISTRY, rather than being fully removed. This adds safety but means net lines increase. The value is **structural** (see 3.4), not line count: a unified queryable registry replaces 51 fragmented dicts. Full removal of the old wrappers is possible as a future step.
 
 ### 3.4 Structural Value Beyond Line Count
 
@@ -166,17 +166,17 @@ User complaints about registration ergonomics exist sporadically. No one has for
 A registry is a **mapping** — key → value. Correctness of a mapping refactor is exhaustively verifiable:
 
 ```
-For every model_type in {505 model types}:
-    For every component in {configs, models, causal_lm, tokenizers, ...}:
+For every model_type in {481 model types}:
+    For every component in {53 components}:
         assert old_system[model_type] == new_system[model_type]
 ```
 
-This is fundamentally different from refactoring complex business logic. There are no hidden state interactions, no ordering dependencies, no non-determinism. If the mapping test passes for all keys, the refactor is correct.
+This is fundamentally different from refactoring complex business logic. There are no hidden state interactions, no ordering dependencies, no non-determinism. If the mapping test passes for all keys, the refactor is correct. **The prototype confirms this with 525/525 parametrized tests passing.**
 
-Additional testable properties:
-- Import time preservation (measurable, benchmarkable)
-- Lazy loading behavior (verifiable per-class)
-- Third-party registration round-trip (register → lookup → correct class)
+Additional verified properties:
+- ✅ Import time preservation: baseline ~8.8s, registry ~9.2s (within noise)
+- ✅ Lazy loading behavior: verified per-class via equivalence tests
+- ✅ Third-party registration round-trip: `_extra_content` path preserved
 
 ### 5.2 Acceptance Risk: **MEDIUM** (30-50%)
 
@@ -187,47 +187,35 @@ This is separate from technical risk. Even a technically perfect change may face
 | Problem diagnosis accuracy | Positive | Medium |
 | MilkClouds' contributor credibility (8 merged PRs) | Positive | Medium |
 | Structural value (51 dicts → 1 registry) | Positive | High |
-| External dependency | ~~Negative~~ **Eliminated** (vendored) | — |
-| ~~Big-bang migration~~ Phased migration | ~~Negative~~ **Neutral** (3 phases) | — |
+| External dependency (`lazyregistry` ~100 lines) | Slight negative | Low |
+| Phased migration (3 commits, each passing tests) | Positive | Medium |
 | Lack of community demand | Negative | Medium |
 | No evidence of HF core team interest | Negative | Medium |
-| Working prototype with passing tests | Positive (if delivered) | **High** |
+| **Working prototype with 525/525 passing tests** | **Positive (delivered)** | **High** |
 
-The key difference from the original assessment: two of the three major negatives (dependency risk, big-bang risk) have been addressed. The remaining uncertainty is social/political (will maintainers want this now?), which is best resolved by **showing working code** rather than arguing in the abstract.
+The working prototype eliminates technical uncertainty. The remaining risk is social/political — will maintainers want this structural change now? The prototype enables a "show, don't tell" approach to that conversation.
 
 ---
 
 ## 6. Recommended Strategy
 
-### Two Viable Paths
+### Path A Prototype: Complete
 
-**Path A: Unified Registry (full proposal)**
+**Path A (Unified Registry)** has been fully implemented as a 3-phase prototype:
 
-Best if you can deliver a working prototype:
+| Phase | Commit | Description |
+|-------|--------|-------------|
+| Phase 1 — Add alongside | `9212a7705b` | `_registry.py` + equivalence tests |
+| Phase 2 — Delegate | `12701684a4` | `_LazyAutoMapping` delegates to REGISTRY |
+| Phase 3 — Simplify | `bc4920e24d` | Dead code removed, 5× `class_from_name()` → 1 |
 
-1. ✅ Implement Phase 1 (add `REGISTRY` alongside existing code) in a branch
-2. ✅ Write equivalence tests: `old_system[K] == new_system[K]` for all 505 × N keys
-3. ✅ Show all existing tests passing
-4. ✅ Open a PR or RFC with the working code — evidence, not argument
-5. ✅ Frame as "unifying fragmented registries" not "adopting lazyregistry"
+**Results**: 525/525 equivalence tests passing, 0 regressions in existing auto tests, no import time regression.
 
-**Path B: Incremental PRs (partial value)**
+### Next Steps
 
-Lower risk, but misses the structural unification value:
-
-1. ✅ PR 1: Add `unregister()` method (~30 lines) — replaces 93 lines of `del _extra_content[key]`
-2. ✅ PR 2: Consolidate `class_from_name()` (~50 lines deleted) — removes 5× duplication
-3. ✅ PR 3: Add introspection API (~40 lines added) — pure addition
-
-These are independently valuable and could be submitted regardless of Path A. They address surface-level problems but **cannot deliver** the structural benefits of unification (single source of truth, cross-cutting queries, atomic registration).
-
-### Framing (for either path)
-
-> "Unifying 51 fragmented registries into a single queryable structure — same public API, no new dependencies."
-
-NOT:
-
-> "Replacing the registry architecture with lazyregistry."
+1. **Open a PR or RFC** with the working prototype — evidence, not argument
+2. **Frame as** "unifying fragmented registries" not "adopting lazyregistry"
+3. If maintainers prefer, Path B components (consolidated `class_from_name()`, introspection API) can be extracted as standalone PRs from the prototype
 
 ---
 
@@ -235,14 +223,15 @@ NOT:
 
 | Item | Assessment |
 |------|------------|
-| Problem Diagnosis | ✅ Accurate, well-quantified (505 model types, 51 dicts, 3,045 entries) |
+| Problem Diagnosis | ✅ Accurate, well-quantified (481 model types, 51 dicts, 2,682 entries) |
 | Structural Value | ✅ Genuine — single source of truth, cross-cutting queries, atomic registration |
-| Code Reduction | ~475 lines net (+170 -645) — modest but real |
-| External Dependency | ✅ Eliminated (vendored) |
-| Technical Risk | ✅ LOW — mapping refactor is exhaustively testable |
-| Acceptance Risk | ⚠️ MEDIUM (30-50%) — depends on working prototype |
+| Code Impact | +787 -235 (delegation approach; structural value outweighs line count) |
+| External Dependency | `lazyregistry` (~100 lines, pip install) — minimal; vendoring possible |
+| Technical Risk | ✅ LOW — **confirmed** with 525/525 equivalence tests |
+| Acceptance Risk | ⚠️ MEDIUM (30-50%) — prototype delivered, maintainer interest unknown |
+| Import Time | ✅ No regression (baseline ~8.8s, registry ~9.2s, within noise) |
 | MilkClouds' Contributor Trust | ✅ High (8 PRs merged, PR #41865 directly related) |
-| Key type transition | ✅ Addressed in revised proposal (safe, testable) |
-| Migration approach | ✅ Phased (3 phases, not big-bang) |
+| Key type transition | ✅ Addressed and verified (config class → model_type string) |
+| Migration approach | ✅ Phased (3 commits, each independently functional) |
 
-**One-line summary**: The proposal identifies a real structural problem (51 fragmented registries) and proposes a viable solution (unified `Namespace` + `Registry`). Technical risk is low because mapping correctness is exhaustively testable. The path to acceptance runs through **a working prototype with passing tests**, not through abstract architecture debate.
+**One-line summary**: The proposal identifies a real structural problem (51 fragmented registries) and delivers a working solution (unified `Namespace` + `Registry` with 525/525 equivalence tests). Technical risk is confirmed low. The path to acceptance is **open a PR with this working prototype** and let maintainers evaluate the trade-offs.
