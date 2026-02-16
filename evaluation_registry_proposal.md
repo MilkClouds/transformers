@@ -1,26 +1,41 @@
 # Evaluation: `proposal_registry_architecture.md`
 
 > **Evaluator**: AI Assistant (based on transformers codebase analysis)
-> **Subject**: `proposal_registry_architecture.md` — Proposal to replace Auto class registry architecture with lazyregistry
+> **Subject**: `proposal_registry_architecture.md` — Proposal to unify 51 fragmented Auto class registries into a single `Namespace` + `Registry` structure
 > **Date**: 2026-02-16
-> **Verdict**: Problem diagnosis is accurate, but the proposed solution has a low probability of acceptance into transformers.
+> **Verdict**: Problem diagnosis is accurate and well-quantified. The unified registry approach has genuine structural value beyond line count. Technical risk is low (mapping refactors are exhaustively testable). Acceptance depends on delivering a working prototype with passing tests.
 
 ---
 
 ## 1. Proposal Summary
 
-- Replace the current `_LazyAutoMapping` + `_extra_content` based Auto class dispatch with `lazyregistry.Namespace` + `Registry`
-- Preserve the public API (`AutoClass.register()`, `from_pretrained()`)
-- Add introspection APIs (`pprint_registry()`, `list_model_types()`, `get_model_info()`)
-- Introduce external dependency on `lazyregistry` (github.com/milkclouds/lazyregistry)
+- **Unify** 51 independent `OrderedDict`s (3,045 entries, 505 model types, 7 files) into a single `Namespace` + `Registry` structure
+- **Vendor** `lazyregistry` source code (~100 lines) — no external dependency added
+- **Preserve** the public API (`AutoClass.register()`, `from_pretrained()`) — zero breaking changes
+- **Eliminate** ~645 lines of duplicated machinery (`_LazyAutoMapping`, 5× `class_from_name()`, AutoModel boilerplate)
+- **Add** introspection APIs (`pprint_registry()`, `list_model_types()`, `get_model_info()`)
+- **Enable** cross-cutting queries, single source of truth per model, atomic registration verification
 
 ---
 
 ## 2. Problem Diagnosis: ✅ Accurate
 
-Every problem identified in the proposal genuinely exists in the codebase:
+Every problem identified in the proposal genuinely exists in the codebase. The revised proposal now quantifies the scale effectively.
 
-### 2.1 `_extra_content` as a De Facto Internal API
+### 2.1 Fragmentation at Scale
+
+| Metric | Count | Verified |
+|--------|-------|----------|
+| Unique model types | 505 | ✅ |
+| Separate MAPPING_NAMES OrderedDicts | 51 | ✅ |
+| Total data entries | 3,045 | ✅ |
+| Files containing registry data | 7 | ✅ |
+| Max dicts per model type ("bert") | 13 | ✅ |
+| Average dicts per model type | 6 | ✅ |
+
+This fragmentation is the **root problem**. All other issues flow from it.
+
+### 2.2 `_extra_content` as a De Facto Internal API
 
 `_extra_content` is private in name only — it is directly accessed throughout the codebase:
 
@@ -34,70 +49,65 @@ Every problem identified in the proposal genuinely exists in the codebase:
 
 **No `unregister()` method exists**, so test code directly performs `del mapping._extra_content[key]`.
 
-### 2.2 Same Function Duplicated 5 Times
+### 2.3 Same Function Duplicated 5 Times
 
-`*_class_from_name()` exists with nearly identical logic in 5 separate files:
+`*_class_from_name()` exists with nearly identical logic in 5 separate files (144 lines total). This duplication was the source of the bug fixed in **PR #41865**.
 
-| File | Function | Lines |
-|------|----------|-------|
-| `tokenization_auto.py` | `tokenizer_class_from_name()` | 44 |
-| `processing_auto.py` | `processor_class_from_name()` | 24 |
-| `image_processing_auto.py` | `get_image_processor_class_from_name()` | 28 |
-| `feature_extraction_auto.py` | `feature_extractor_class_from_name()` | 24 |
-| `video_processing_auto.py` | `video_processor_class_from_name()` | 24 |
-| **Total** | | **144** |
+### 2.4 Dual Storage Bug Surface
 
-### 2.3 `_MAPPING_NAMES` vs `_MAPPING` Dual Storage
-
-Built-in models are stored in `_MAPPING_NAMES` (str→str, lazy), while third-party models go into `_extra_content` (class→class, eager). This duality was the direct cause of a bug that MilkClouds themselves fixed in **PR #41865**.
-
-### 2.4 No Introspection API
-
-There is currently no clean API to query the list of registered models.
+Built-in models use `_MAPPING_NAMES` (str→str, lazy); third-party models use `_extra_content` (class→class, eager). Every lookup function must search both paths, and inconsistencies between them cause bugs.
 
 ---
 
-## 3. Solution Evaluation: ⚠️ Excessive
+## 3. Solution Evaluation: ✅ Viable (Revised from ⚠️ Excessive)
 
-### 3.1 External Dependency Risk
+### 3.1 External Dependency: ~~Risk~~ → Eliminated
 
-| Item | Status |
-|------|--------|
-| `lazyregistry` maintainer | Suhwan Choi (MilkClouds), sole developer |
-| GitHub stars | Few |
-| PyPI downloads | Minimal |
-| transformers weekly downloads | Millions |
+The revised proposal specifies **vendoring** — copying `lazyregistry` source (~100 lines) into `transformers/_vendor/lazyregistry.py`. No external dependency is added. This eliminates what was previously the #1 objection.
 
-transformers is extremely conservative about adding small external dependencies to core paths. If the same functionality can be implemented internally in ~100 lines, the case for adopting an external library is weak.
+### 3.2 Key Type Transition: Addressed
 
-### 3.2 Key Type Transition Problem
+The revised proposal explicitly discusses the config class → `model_type` string transition and explains why it is safe:
 
-The current system dispatches on **config class** as key:
+1. The current system already resolves through `model_type` internally
+2. `config.model_type` is the canonical identifier used by `from_pretrained()`
+3. Edge cases are bounded (two config classes sharing one `model_type` is already a bug)
+4. Exhaustively testable for all 505 model types
 
-```python
-type(config) in cls._model_mapping  # config CLASS is the key
-```
+This section was missing from the original proposal and caused legitimate concern. The revised version addresses it.
 
-The proposal switches to **model_type string** as key:
+### 3.3 Code Reduction: Honest
 
-```python
-config.model_type in REGISTRY["models"]  # model_type STRING is the key
-```
+| Category | Lines |
+|----------|-------|
+| Deletable machinery | ~645 |
+| New code (vendored lib + registry module) | ~170 |
+| **Net reduction** | **~475** |
+| Data entries (not reducible) | 3,045 |
 
-This is not a simple implementation swap — it is a **fundamental change to the dispatch mechanism**. The proposal does not adequately address edge cases and backward compatibility of this transition.
+The proposal is honest: data doesn't shrink, machinery does. The ~475 line net reduction is modest but real. More importantly, the value is **structural** (see 3.4), not just line count.
 
-### 3.3 Code Reduction: Smaller Than Expected
+### 3.4 Structural Value Beyond Line Count
 
-| Category | Lines | Notes |
-|----------|-------|-------|
-| Deletable (implementation logic) | ~494 | Lazy* classes 200 + duplicated functions 144 + misc 150 |
-| Not deletable (data) | **1,646** | 45 MAPPING_NAMES OrderedDict data entries |
-| Not deletable (AutoClass defs) | ~200 | 40 AutoClass public API definitions |
-| Not deletable (instantiation) | ~46 | 46 mapping instances |
+These capabilities are impossible with the current 51-dict architecture and cannot be achieved by small incremental PRs:
 
-**Realistically achievable**: approximately **+100 -500** (not +30 -1000)
+| Capability | Current | Proposed |
+|------------|---------|----------|
+| "What does bert support?" | Grep 7 files | `get_model_info("bert")` |
+| "Models with causal_lm + tokenizer?" | Manual dict join | Registry cross-query |
+| "Is my-llm fully registered?" | Check each mapping | Atomic verification |
+| Built-in / third-party same path? | No (dual storage) | Yes (single dict) |
+| `_extra_content` exposure | `pipelines/base.py` reaches into `_model_mapping._extra_content.values()` | Eliminated |
 
-The 1,646 lines of MAPPING_NAMES data are **data, not logic** — they do not shrink regardless of registry implementation. Using `"module:Class"` format would actually make each entry longer.
+### 3.5 Migration Strategy: Phased (Not Big-Bang)
+
+The revised proposal describes a 3-phase migration where the system is fully functional at each boundary:
+
+1. **Phase 1**: Add `REGISTRY` alongside existing code
+2. **Phase 2**: Delegate existing lookups to `REGISTRY`
+3. **Phase 3**: Remove old code
+
+This addresses the "big-bang risk" concern. Each phase is a self-contained PR.
 
 ---
 
@@ -139,7 +149,7 @@ No one in the community has ever formally raised this structural problem.
 | Issue #37584 | Bug in `register()` config class comparison logic |
 | PR #41633 (v5) | @yonigozlan's subprocessor handling refactor — structural change but performed within existing patterns |
 
-User complaints about registration ergonomics exist sporadically, but **no one has called for replacing the entire architecture**.
+User complaints about registration ergonomics exist sporadically. No one has formally proposed structural unification, but the pain points are consistent with the proposal's diagnosis.
 
 ### 4.4 HF Core Team Perspective
 
@@ -149,62 +159,75 @@ User complaints about registration ergonomics exist sporadically, but **no one h
 
 ---
 
-## 5. Acceptance Probability Assessment
+## 5. Risk Assessment
 
-### Full Proposal As-Is: **LOW** (10-20%)
+### 5.1 Technical Risk: **LOW**
+
+A registry is a **mapping** — key → value. Correctness of a mapping refactor is exhaustively verifiable:
+
+```
+For every model_type in {505 model types}:
+    For every component in {configs, models, causal_lm, tokenizers, ...}:
+        assert old_system[model_type] == new_system[model_type]
+```
+
+This is fundamentally different from refactoring complex business logic. There are no hidden state interactions, no ordering dependencies, no non-determinism. If the mapping test passes for all keys, the refactor is correct.
+
+Additional testable properties:
+- Import time preservation (measurable, benchmarkable)
+- Lazy loading behavior (verifiable per-class)
+- Third-party registration round-trip (register → lookup → correct class)
+
+### 5.2 Acceptance Risk: **MEDIUM** (30-50%)
+
+This is separate from technical risk. Even a technically perfect change may face resistance:
 
 | Factor | Direction | Weight |
 |--------|-----------|--------|
 | Problem diagnosis accuracy | Positive | Medium |
-| MilkClouds' contributor credibility | Positive | Medium |
-| External dependency addition | Negative | **High** |
-| Big-bang migration risk | Negative | **High** |
+| MilkClouds' contributor credibility (8 merged PRs) | Positive | Medium |
+| Structural value (51 dicts → 1 registry) | Positive | High |
+| External dependency | ~~Negative~~ **Eliminated** (vendored) | — |
+| ~~Big-bang migration~~ Phased migration | ~~Negative~~ **Neutral** (3 phases) | — |
 | Lack of community demand | Negative | Medium |
-| Code reduction below expectations | Negative | Medium |
-| No evidence of HF core team interest | Negative | High |
+| No evidence of HF core team interest | Negative | Medium |
+| Working prototype with passing tests | Positive (if delivered) | **High** |
 
-### Incremental Improvement (3 Independent PRs): **MEDIUM** (40-60%)
-
-| PR | Description | Difficulty | Value |
-|----|-------------|------------|-------|
-| PR 1 | Add `unregister()` method | Low | Clean up 93 lines of test code |
-| PR 2 | Consolidate `class_from_name()` | Medium | Remove 144 lines of duplication |
-| PR 3 | Add introspection API | Low | Pure addition |
-
-These 3 PRs can each be merged independently, and together they cover **~80% of the problems** the proposal aims to solve.
+The key difference from the original assessment: two of the three major negatives (dependency risk, big-bang risk) have been addressed. The remaining uncertainty is social/political (will maintainers want this now?), which is best resolved by **showing working code** rather than arguing in the abstract.
 
 ---
 
 ## 6. Recommended Strategy
 
-### Don't
+### Two Viable Paths
 
-1. ❌ File an issue proposing full architecture replacement
-2. ❌ Propose adding `lazyregistry` as a dependency
-3. ❌ Submit one large PR
+**Path A: Unified Registry (full proposal)**
 
-### Do
+Best if you can deliver a working prototype:
 
-1. ✅ PR 1: Add `_LazyAutoMapping.unregister()` + `_LazyConfigMapping.unregister()` (~30 lines changed)
-   - Replace test `del _extra_content[...]` → `unregister()` calls
-   - Rationale: "Direct manipulation of private attributes is fragile"
+1. ✅ Implement Phase 1 (add `REGISTRY` alongside existing code) in a branch
+2. ✅ Write equivalence tests: `old_system[K] == new_system[K]` for all 505 × N keys
+3. ✅ Show all existing tests passing
+4. ✅ Open a PR or RFC with the working code — evidence, not argument
+5. ✅ Frame as "unifying fragmented registries" not "adopting lazyregistry"
 
-2. ✅ PR 2: Consolidate 5 `*_class_from_name()` functions into a `_LazyAutoMapping` method (~50 lines deleted)
-   - Rationale: "Identical logic duplicated 5 times is a source of bugs" (PR #41865 as evidence)
+**Path B: Incremental PRs (partial value)**
 
-3. ✅ PR 3: Add introspection API (~40 lines added)
-   - `pprint_registry()`, `list_model_types()`, etc.
-   - Pure addition, no changes to existing code
+Lower risk, but misses the structural unification value:
 
-4. ✅ Reference the PR #41865 experience in each PR to demonstrate the problem is real
+1. ✅ PR 1: Add `unregister()` method (~30 lines) — replaces 93 lines of `del _extra_content[key]`
+2. ✅ PR 2: Consolidate `class_from_name()` (~50 lines deleted) — removes 5× duplication
+3. ✅ PR 3: Add introspection API (~40 lines added) — pure addition
 
-### Framing
+These are independently valuable and could be submitted regardless of Path A. They address surface-level problems but **cannot deliver** the structural benefits of unification (single source of truth, cross-cutting queries, atomic registration).
 
-> "Fixing 3 specific problems in the auto registration system, each as an independent PR."
+### Framing (for either path)
+
+> "Unifying 51 fragmented registries into a single queryable structure — same public API, no new dependencies."
 
 NOT:
 
-> "Proposing to replace the registry architecture with lazyregistry."
+> "Replacing the registry architecture with lazyregistry."
 
 ---
 
@@ -212,12 +235,14 @@ NOT:
 
 | Item | Assessment |
 |------|------------|
-| Problem Diagnosis | ✅ Accurate with sufficient code evidence |
-| Solution Direction | ⚠️ Right direction but excessive scope |
-| lazyregistry Adoption | ❌ External dependency risk > internal implementation cost |
-| Code Reduction Outlook | ⚠️ +100 -500 (realistic), not +30 -1000 |
-| Acceptance Probability (full) | LOW (10-20%) |
-| Acceptance Probability (incremental) | MEDIUM (40-60%) |
+| Problem Diagnosis | ✅ Accurate, well-quantified (505 model types, 51 dicts, 3,045 entries) |
+| Structural Value | ✅ Genuine — single source of truth, cross-cutting queries, atomic registration |
+| Code Reduction | ~475 lines net (+170 -645) — modest but real |
+| External Dependency | ✅ Eliminated (vendored) |
+| Technical Risk | ✅ LOW — mapping refactor is exhaustively testable |
+| Acceptance Risk | ⚠️ MEDIUM (30-50%) — depends on working prototype |
 | MilkClouds' Contributor Trust | ✅ High (8 PRs merged, PR #41865 directly related) |
+| Key type transition | ✅ Addressed in revised proposal (safe, testable) |
+| Migration approach | ✅ Phased (3 phases, not big-bang) |
 
-**One-line summary**: The proposal accurately identifies real problems, but the solution does not fit transformers' conservative change culture. Reframing the same insights as **3 small, independent PRs** would significantly increase the probability of acceptance.
+**One-line summary**: The proposal identifies a real structural problem (51 fragmented registries) and proposes a viable solution (unified `Namespace` + `Registry`). Technical risk is low because mapping correctness is exhaustively testable. The path to acceptance runs through **a working prototype with passing tests**, not through abstract architecture debate.

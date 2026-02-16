@@ -1,4 +1,4 @@
-# Proposal: Improving Third-Party Model Registration in Transformers
+# Proposal: Unifying the Auto Class Registry in Transformers
 
 *2026-02-16*
 
@@ -6,19 +6,38 @@
 
 ## 1. Summary
 
-Transformers supports third-party model registration through several pathways, and the public API (`AutoClass.register()`) is well-designed. However, the **internal registry implementation** has structural limitations — no introspection, no lazy loading for third-party models, and a fragmented internal mapping structure (`_LazyAutoMapping` + `_extra_content`).
+Transformers' Auto class system manages **505 model types** across **51 independent `OrderedDict`s** spread over **7 files**. Each model type (e.g., `"bert"`) has its capabilities scattered — config in one dict, tokenizer in another, each of 40+ task-specific model mappings in yet another. There is no single place that answers "what does model X support?"
 
-This document proposes replacing the internal registry with a `Namespace` + `Registry` pattern (as implemented by [`lazyregistry`](https://github.com/milkclouds/lazyregistry)), while **keeping the existing public API unchanged**. This gives us introspection and unified lazy loading for free, with zero breaking changes.
+This document proposes **unifying these 51 fragmented registries into a single `Namespace` + `Registry` structure**, using the pattern from [`lazyregistry`](https://github.com/milkclouds/lazyregistry) (vendored, not added as an external dependency). The public API (`AutoClass.register()`, `from_pretrained()`) remains unchanged. The result is:
+
+- **Single source of truth** per model type — all capabilities queryable from one place
+- **~500 lines of duplicated machinery eliminated** — `_LazyAutoMapping`, `_LazyConfigMapping`, 5× duplicated `class_from_name()`, 40 boilerplate AutoModel definitions
+- **Introspection for free** — `pprint_registry()`, `list_model_types()`, `get_model_info()` as natural dict operations
+- **Unified storage** — built-in and third-party models in the same structure, eliminating the `_extra_content` dual-storage problem
 
 ---
 
 ## 2. Current State
 
-### How third-party registration works today
+### The scale of fragmentation
 
-There are five pathways for registering third-party models. The most relevant for this proposal are **A** and **D**:
+The auto class system currently consists of:
 
-**Pathway A — `AutoClass.register()` (runtime, in-memory)**:
+| Metric | Count |
+|--------|-------|
+| Unique model types | 505 |
+| Separate `MAPPING_NAMES` OrderedDicts | 51 |
+| Total data entries across all dicts | 3,045 |
+| Files containing registry data | 7 |
+| `_LazyAutoMapping` instances | 46 |
+| AutoModel class definitions (boilerplate) | 40 |
+| Duplicated `*_class_from_name()` functions | 5 (144 lines) |
+
+A single model type like `"bert"` appears in **13 separate dicts** across multiple files. To answer "what does bert support?", you must grep 7 files.
+
+### How registration works today
+
+The public API is well-designed — registering Config, Model, and Tokenizer separately is correct because they are fundamentally different components with different lifecycles:
 
 ```python
 AutoConfig.register("my-model", MyConfig)
@@ -27,106 +46,59 @@ AutoModelForCausalLM.register(MyConfig, MyModelForCausalLM)
 AutoTokenizer.register(MyConfig, slow_tokenizer_class=MyTokenizer)
 ```
 
-Internally, these store into `_LazyAutoMapping._extra_content`, a plain dict that lives only in process memory.
-
-**Pathway D — Third-party library pattern** (most common for installable packages):
-
-```python
-# my_models_lib/__init__.py
-from transformers import AutoConfig, AutoModel
-AutoConfig.register("my-model", MyConfig)
-AutoModel.register(MyConfig, MyModel)
-
-# User code
-import my_models_lib  # triggers registration
-model = AutoModel.from_pretrained("path/to/my-model")
-```
-
-Other pathways: **B** (`trust_remote_code` — Hub dynamic code loading), **C** (`register_for_auto_class()` — Hub push preparation), **E** (`PIPELINE_REGISTRY.register_pipeline()`).
-
-### Components that can be registered
-
-| Component | Auto Class | Registration |
-|-----------|-----------|-------------|
-| Config | `AutoConfig` | `AutoConfig.register(model_type, ConfigClass)` |
-| Model | `AutoModel`, `AutoModelForCausalLM`, ... (20+) | `AutoModelForX.register(ConfigClass, ModelClass)` |
-| Tokenizer | `AutoTokenizer` | `AutoTokenizer.register(ConfigClass, slow_tokenizer_class=...)` |
-| Processor | `AutoProcessor` | `AutoProcessor.register(ConfigClass, ProcessorClass)` |
-| ImageProcessor | `AutoImageProcessor` | `AutoImageProcessor.register(ConfigClass, IPClass)` |
-| FeatureExtractor | `AutoFeatureExtractor` | `AutoFeatureExtractor.register(ConfigClass, FEClass)` |
-| Pipeline | `PIPELINE_REGISTRY` | `PIPELINE_REGISTRY.register_pipeline(task, ...)` |
+Internally, each `register()` call stores into a **separate** `_LazyAutoMapping._extra_content` dict. There is no connection between these registrations.
 
 ### What works well
 
-The **public API is fine**. Registering Config, Model, and Tokenizer separately is the right design — they are fundamentally different components with different lifecycles. A user might register Config + Model but reuse an existing Tokenizer, or register multiple task-specific models for one Config. Explicit per-component registration is clear and Pythonic.
+The **public API is fine** and should not change. Per-component registration is the right design.
 
 ### What doesn't work well
 
-The problems are in the **internal implementation**, not the public API:
+The problems are in the **internal implementation**:
 
-**1. No introspection.** There is no way to list registered third-party models, inspect their registration state, or verify completeness.
+**1. 51 independent registries with no unified view.** Each Auto class maintains its own `_LazyAutoMapping` with its own `_extra_content`. There is no way to ask "what components are registered for model type X?" without manually checking every mapping.
+
+**2. No introspection.** There is no API to list registered models, inspect registration state, or verify completeness.
 
 ```python
 # None of these exist today:
 AutoModel.list_registered()
 transformers.pprint_registry()
+transformers.get_model_info("bert")  # → all capabilities in one view
 ```
 
-**2. Fragmented internal structure.** Each of the 20+ Auto classes maintains its own `_LazyAutoMapping` with a separate `_extra_content` dict. There is no unified view of what's registered.
+**3. Dual storage (`_MAPPING_NAMES` vs `_extra_content`).** Built-in models use string-based lazy loading via `CONFIG_MAPPING_NAMES` / `MODEL_MAPPING_NAMES`. Third-party models are stored as direct class references in `_extra_content`. This duality caused the bug fixed in **PR #41865** and forces 5 separate `*_class_from_name()` functions (144 lines of near-identical code) to search both storage paths.
 
-**3. Lazy loading only for built-in models.** `_LazyAutoMapping` provides lazy loading via string-based lookups in `CONFIG_MAPPING_NAMES` / `MODEL_MAPPING_NAMES`, but third-party models registered via `register()` are stored as direct class references in `_extra_content` — they must be imported at registration time.
+**4. `_extra_content` is a de facto internal API.** Despite being private, `_extra_content` is directly accessed from 93 lines of test code (`del mapping._extra_content[key]` for cleanup), `processing_utils.py`, `pipelines/base.py`, and all 5 `*_class_from_name()` functions. There is no `unregister()` method.
+
+**5. No cross-cutting queries.** "Which models support causal LM and have a tokenizer?" requires manually joining two OrderedDicts. "Which models have an image processor but no video processor?" requires checking 3 files.
 
 ---
 
 ## 3. Prior Art
 
-### 3.1 Gymnasium
+### 3.1 The `"module:Class"` String Pattern
 
-Gymnasium (the standard RL environment library) solves an analogous registration problem — third-party environments need to be registered and used through a unified API — with a remarkably simple design.
+Multiple libraries use `"module:Class"` strings for lazy-loading registries. The core idea is simple: store a string like `"transformers.models.bert:BertModel"` instead of importing the class, then resolve it via `importlib` on first access.
 
-**Core architecture** (from `gymnasium/envs/registration.py`):
-
-```python
-registry: dict[str, EnvSpec] = {}  # global registry — just a dict
-
-def register(id: str, entry_point: str | Callable | None = None, ...):
-    """entry_point is a "module:ClassName" string — no import at registration time."""
-    registry[id] = EnvSpec(id=id, entry_point=entry_point, ...)
-
-def make(id: str, **kwargs) -> Env:
-    """Import happens at call time — lazy loading is built in."""
-    spec = registry[id]
-    env_creator = load(spec.entry_point)  # importlib resolves the string
-    return env_creator(**kwargs)
-
-def pprint_registry():    # introspection
-def spec(id: str):         # individual spec lookup
-```
-
-**Built-in environments use the same pattern**:
+Gymnasium (the standard RL environment library) demonstrates this pattern at scale:
 
 ```python
-# gymnasium/envs/__init__.py
-register(id="CartPole-v1", entry_point="gymnasium.envs.classic_control.cartpole:CartPoleEnv")
-register(id="LunarLander-v3", entry_point="gymnasium.envs.box2d.lunar_lander:LunarLander")
+# Registration stores a string — no import happens
+register(id="CartPole-v1", entry_point="gymnasium.envs.classic_control:CartPoleEnv")
+
+# Import happens only when make() is called
+env = gym.make("CartPole-v1")
+
+# Introspection comes naturally
+gym.pprint_registry()
 ```
 
-**Third-party registration**:
-
-```python
-# Option 1: register in package __init__.py
-import gymnasium as gym
-gym.register(id="my_envs/MyEnv-v0", entry_point="my_envs.envs:MyEnv")
-
-# Option 2: pass module path directly to make()
-env = gym.make("my_envs:my_envs/MyEnv-v0")  # detects ":" → auto-imports module
-```
-
-**Key insight**: Gymnasium does **not** use `entry_points` for auto-discovery. The `"module:Class"` string pattern provides lazy loading, and `pprint_registry()` provides introspection. Third-party packages register via `import my_envs` (same as transformers Pathway D).
+This is the same pattern transformers already uses internally with `CONFIG_MAPPING_NAMES` (storing `"bert" → "BertConfig"` strings). The difference is that transformers wraps this in a custom `_LazyAutoMapping` class with bolted-on `_extra_content`, while the `"module:Class"` pattern gives both lazy loading and introspection from a single dict.
 
 ### 3.2 lazyregistry
 
-[`lazyregistry`](https://github.com/milkclouds/lazyregistry) generalizes the Gymnasium pattern into a reusable library. Its key constructs:
+[`lazyregistry`](https://github.com/milkclouds/lazyregistry) packages this pattern into ~100 lines providing two constructs:
 
 **Registry** — a lazy-loading dict:
 
@@ -138,52 +110,22 @@ registry["bert"] = "transformers:BertModel"     # string → lazy import
 registry["custom"] = MyCustomModel               # direct object → immediate
 
 bert = registry["bert"]  # import happens here, on first access
-list(registry.keys())    # introspection for free — it's just a dict
+list(registry.keys())    # introspection — it's just a dict
 ```
 
-**Namespace** — isolated multi-registry container:
+**Namespace** — multi-registry container with per-component isolation:
 
 ```python
 from lazyregistry import NAMESPACE
 
 NAMESPACE["models"]["bert"] = "transformers:BertModel"
 NAMESPACE["tokenizers"]["bert"] = "transformers:BertTokenizer"
-# same key "bert" coexists across models/tokenizers without conflict
+# same key "bert" in different registries — no conflict
 ```
 
-**AutoRegistry** — automatic class dispatch via `type_key` in config:
+Transformers has 7+ component types (Config, Model×40 task variants, Tokenizer, Processor, etc.) sharing the same `model_type` key space. A `Namespace` provides per-component isolation while enabling unified queries across all registries — something 51 independent `OrderedDict`s cannot do.
 
-```python
-from lazyregistry.pretrained import AutoRegistry, PretrainedMixin
-
-class AutoModel(AutoRegistry):
-    registry = NAMESPACE["models"]
-    config_class = ModelConfig
-    type_key = "model_type"  # dispatches on config.model_type
-
-@AutoModel.register_module("bert")
-class BertModel(PretrainedMixin[ModelConfig]): ...
-
-# bulk registration with lazy import strings
-AutoModel.registry.update({
-    "roberta": "transformers:RobertaModel",
-    "t5": "transformers:T5Model",
-})
-```
-
-### 3.3 Comparison
-
-| | Transformers (current) | Gymnasium | lazyregistry |
-|---|---|---|---|
-| **Registry structure** | `_LazyAutoMapping` × 20+ Auto classes | single `registry` dict | `Registry` dict × N (isolated via Namespace) |
-| **Registration** | `AutoConfig.register()`, `AutoModel.register()`, ... separately | `register()` — one function | `registry["key"] = "module:Class"` |
-| **Lazy loading** | Built-in only (`_LazyAutoMapping`) | `"module:Class"` string | `"module:object"` → `ImportString` auto-conversion |
-| **Introspection** | ❌ None | `pprint_registry()`, `spec()` | `keys()`, `len()`, `in` (dict API) |
-| **Auto-discovery** | ❌ None | ❌ None | ❌ None |
-| **type_key dispatch** | `model_type` → hardcoded mapping | N/A | `AutoRegistry.type_key` |
-| **Component types** | 7+ (Config, Model×N, Tokenizer, ...) | 1 (Env) | Unlimited (Namespace isolation) |
-
-**Why Namespace fits transformers better than Gymnasium's single-registry approach**: Gymnasium registers only one component type (Env), so a single dict suffices. Transformers registers Config, Model (×20+ task variants), Tokenizer, Processor, etc. — fundamentally different component types that share the same `model_type` key. The `Namespace` pattern provides per-component isolation while allowing unified introspection across all registries.
+**Note on dependency**: `lazyregistry` source code (~100 lines) would be **vendored** directly into transformers, not added as an external dependency. This eliminates any dependency risk while retaining the implementation.
 
 ---
 
@@ -193,13 +135,14 @@ AutoModel.registry.update({
 
 1. **Keep the existing per-component `register()` API unchanged.** Config, Model, and Tokenizer are fundamentally different components — separate registration calls are the right design.
 2. **Replace the internal mapping with `Namespace` + `Registry`.** Swap `_LazyAutoMapping` + `_extra_content` for a dict-based registry that supports lazy `"module:Class"` strings.
-3. **Expose introspection via the dict API.** Because `Registry` is a dict, `keys()`, `len()`, `in`, and `pprint_registry()` come naturally.
+3. **Vendor, don't depend.** The `lazyregistry` source code (~100 lines) is copied into `transformers/_vendor/lazyregistry.py`. No external dependency is added.
+4. **Expose introspection via the dict API.** Because `Registry` is a dict, `keys()`, `len()`, `in`, and `pprint_registry()` come naturally.
 
 ### 4.1 Internal Structure: Introducing `Namespace` + `Registry`
 
 ```python
 # transformers/_registry.py (new file)
-from lazyregistry import Namespace
+from transformers._vendor.lazyregistry import Namespace  # vendored, not external
 
 REGISTRY = Namespace()
 
@@ -266,7 +209,30 @@ AutoModel.register(MyLLMConfig, MyLLMModel)            # same as today
 AutoModelForCausalLM.register(MyLLMConfig, MyLLMForCausalLM)  # same as today
 ```
 
-### 4.4 Introspection API
+### 4.4 Key Type Transition: Config Class → `model_type` String
+
+The current system uses the **config class** as the lookup key:
+
+```python
+# Current: _LazyAutoMapping.__getitem__
+type(config) in self._model_mapping  # config CLASS is the key
+```
+
+The proposed system uses the **`model_type` string** as the key:
+
+```python
+# Proposed: Registry lookup
+config.model_type in REGISTRY["models"]  # model_type STRING is the key
+```
+
+This is a real change in dispatch semantics, not a trivial swap. Why it is safe:
+
+1. **The current system already resolves through `model_type` internally.** `_LazyAutoMapping` stores `config_name → model_name` strings in `_config_mapping` / `_model_mapping`, and resolves them via `config_class.__name__` → string lookup. The config class is just an indirection layer.
+2. **`config.model_type` is the canonical identifier.** Every `PretrainedConfig` has a `model_type` attribute. The `from_pretrained()` path already extracts `model_type` from `config.json` to find the config class.
+3. **Edge cases are bounded.** The only case where `model_type` differs from what the class-based lookup would give is if two different config classes share the same `model_type` — which is already a bug in the current system.
+4. **Exhaustively testable.** For all 505 model types: `current_dispatch(config) == new_dispatch(config)`. This is a finite, enumerable check.
+
+### 4.5 Introspection API
 
 Because `Registry` is a dict, introspection is a natural consequence rather than a separate feature:
 
@@ -316,7 +282,7 @@ transformers.get_model_info("my-llm")
 #  'causal_lm': <class 'MyLLMForCausalLM'>}
 ```
 
-### 4.5 Architecture Diagram
+### 4.6 Architecture Diagram
 
 **Current (AS-IS)**:
 
@@ -374,20 +340,56 @@ transformers.get_model_info("my-llm")
 
 ---
 
-## 5. Implementation Priority
+## 5. Implementation Strategy
 
-| Priority | Change | Impact | Difficulty | Compatibility |
-|----------|--------|--------|------------|---------------|
-| **🥇 1** | Replace internals with `Namespace` + `Registry` | ★★★★★ | ★★★☆☆ | 100% backward-compatible (API identical) |
-| **🥈 2** | Expose introspection API | ★★★★☆ | ★★☆☆☆ | Pure addition |
+### 5.1 Phased Migration (Not Big-Bang)
 
-**#1 is the foundation.** Once `_LazyAutoMapping` + `_extra_content` is replaced with `Registry`, #2 (introspection) comes for free as dict API, and future improvements (see Section 6) can be layered on top naturally.
+The migration is structured in 3 phases. At each phase boundary, the system is fully functional and all existing tests pass.
+
+**Phase 1 — Add alongside.** Introduce `REGISTRY` as a new module. Populate it with the same data as the existing `MAPPING_NAMES` dicts. At this point, both systems coexist and neither depends on the other.
+
+**Phase 2 — Delegate.** Modify `_LazyAutoMapping` and `_LazyConfigMapping` to delegate their lookups to `REGISTRY` internally, while keeping the same external interface. All existing code that accesses these mappings continues to work — it just hits `REGISTRY` underneath.
+
+**Phase 3 — Remove old.** Once all tests pass with the delegation layer, remove `_LazyAutoMapping`, `_LazyConfigMapping`, `_LazyLoadAllMappings`, and the 5 duplicated `*_class_from_name()` functions. The `MAPPING_NAMES` OrderedDicts become `REGISTRY[component].update(...)` calls.
+
+Each phase is a self-contained PR with passing tests.
+
+### 5.2 Why This is Low-Risk
+
+A registry is a **mapping**: key → value. Correctness verification is:
+
+```python
+# For every model_type in the current system:
+for model_type in all_model_types:
+    assert current_dispatch(model_type) == new_dispatch(model_type)
+```
+
+This is **exhaustively testable** — 505 model types × N registries = a finite, enumerable set. Unlike refactoring complex business logic, there are no hidden state interactions or ordering dependencies. If the mapping test passes for all keys, the refactor is correct.
+
+### 5.3 Quantified Impact
+
+| Deleted | Lines | What |
+|---------|-------|------|
+| `_LazyAutoMapping` + `_LazyConfigMapping` + `_LazyLoadAllMappings` | ~200 | Custom lazy-loading wrappers |
+| `*_class_from_name()` × 5 files | 144 | Near-identical function duplicated 5 times |
+| 40 AutoModel boilerplate definitions | ~200 | 35 are pure 4-5 line boilerplate |
+| 46 `_LazyAutoMapping()` instantiation lines | ~51 | Per-mapping instance creation |
+| `_extra_content` direct access patterns | ~50 | Test cleanup, processing_utils, pipelines/base |
+| **Total deleted** | **~645** | |
+
+| Added | Lines | What |
+|-------|-------|------|
+| `_vendor/lazyregistry.py` | ~100 | Vendored registry implementation |
+| `_registry.py` | ~70 | Namespace setup + introspection API |
+| **Total added** | **~170** | |
+
+**Net: approximately +170 -645 (~475 lines reduced).** The 3,045 data entries (model type → class name mappings) remain — they are data, not logic, and do not shrink regardless of implementation.
 
 ---
 
 ## 6. Future Improvement: `entry_points` Auto-Discovery
 
-The design in Section 4 relies on `import my_package` (Pathway D) to trigger third-party registration — the same pattern Gymnasium uses successfully. This is explicit, has zero startup cost, and already works today.
+The design in Section 4 relies on `import my_package` to trigger third-party registration — the same pattern Gymnasium uses successfully. This is explicit, has zero startup cost, and already works today.
 
 However, if there is future demand for fully automatic registration (no `import` needed after `pip install`), Python `entry_points` can be layered on top of the Registry foundation:
 
@@ -429,9 +431,12 @@ The `Namespace` + `Registry` foundation makes entry_points trivial to add later 
 
 | | Current | Proposed |
 |---|---|---|
-| **Internal registry** | `_LazyAutoMapping` + `_extra_content` per Auto class | `Namespace` + `Registry` (single dict-based structure) |
+| **Registry structure** | 51 independent `OrderedDict`s across 7 files | 1 `Namespace` with per-component `Registry` dicts |
+| **Internal implementation** | `_LazyAutoMapping` + `_extra_content` dual storage | Single dict per component (built-in and third-party unified) |
 | **Lazy loading** | Built-in models only | Built-in and third-party (via `"module:Class"` strings) |
 | **Introspection** | Not available | `pprint_registry()`, `list_model_types()`, `get_model_info()` |
+| **External dependencies** | None added | None added (lazyregistry is vendored) |
+| **Net code impact** | — | ~475 lines reduced (+170 -645) |
 
 ### What doesn't change
 
@@ -440,37 +445,33 @@ The `Namespace` + `Registry` foundation makes entry_points trivial to add later 
 | **Public registration API** | `AutoConfig.register()`, `AutoModel.register()`, etc. — identical |
 | **Third-party registration flow** | `import my_package` triggers registration — same as today |
 | **`from_pretrained()` behavior** | Unchanged for both built-in and third-party models |
+| **Data** | 3,045 model type → class name entries remain (data, not logic) |
 
-### Third-party library developer workflow
+### What this enables that the current architecture cannot
+
+| Capability | Example |
+|------------|---------|
+| Single source of truth per model | `get_model_info("bert")` → all 13 capabilities in one call |
+| Cross-cutting queries | "Which models have both causal_lm and tokenizer?" |
+| Atomic registration verification | "Is my-llm fully registered?" (config + model + tokenizer) |
+| Clean `unregister()` | Replace 93 lines of `del _extra_content[key]` in tests |
+| Eliminate `_extra_content` as de facto API | No more `pipelines/base.py` reaching into `_model_mapping._extra_content.values()` |
+
+### User-facing workflow (unchanged)
 
 ```python
-# my_custom_model/__init__.py
-from transformers import AutoConfig, AutoModel, AutoModelForCausalLM
-from .config import MyLLMConfig
-from .model import MyLLMModel, MyLLMForCausalLM
-
+# Third-party developer (same as today)
 AutoConfig.register("my-llm", MyLLMConfig)
 AutoModel.register(MyLLMConfig, MyLLMModel)
 AutoModelForCausalLM.register(MyLLMConfig, MyLLMForCausalLM)
-```
 
-No changes needed from today's Pathway D — it just works.
-
-### End-user workflow
-
-```python
-import my_custom_model  # one line — triggers registration
-from transformers import AutoModelForCausalLM
-
-# introspection (new)
-import transformers
-transformers.pprint_registry("configs")
-# === configs (524 entries) ===
-#   ...
-#   my-llm: <class 'my_custom_model.config.MyLLMConfig'> [third-party]
-
-# usage (unchanged)
+# End user (same as today)
+import my_custom_model
 model = AutoModelForCausalLM.from_pretrained("user/my-llm")
+
+# Introspection (new)
+transformers.get_model_info("my-llm")
+# {'configs': <class 'MyLLMConfig'>, 'models': <class 'MyLLMModel'>, 'causal_lm': <class 'MyLLMForCausalLM'>}
 ```
 
 ---
