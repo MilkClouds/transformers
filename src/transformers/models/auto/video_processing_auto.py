@@ -13,7 +13,6 @@
 # limitations under the License.
 """AutoVideoProcessor class."""
 
-import importlib
 import os
 from collections import OrderedDict
 from typing import TYPE_CHECKING
@@ -95,23 +94,11 @@ VIDEO_PROCESSOR_MAPPING = _LazyAutoMapping(
 
 
 def video_processor_class_from_name(class_name: str):
-    from ..._registry import class_from_name
+    from ..._registry import resolve_class_from_name
 
-    result = class_from_name("video_processor", class_name)
-    if result is not None:
-        return result
-
-    for extractor in VIDEO_PROCESSOR_MAPPING._extra_content.values():
-        if getattr(extractor, "__name__", None) == class_name:
-            return extractor
-
-    # We did not find the class, but maybe it's because a dep is missing. In that case, the class will be in the main
-    # init and we return the proper dummy to get an appropriate error message.
-    main_module = importlib.import_module("transformers")
-    if hasattr(main_module, class_name):
-        return getattr(main_module, class_name)
-
-    return None
+    return resolve_class_from_name(
+        class_name, "video_processor", extra_content=VIDEO_PROCESSOR_MAPPING._extra_content.values()
+    )
 
 
 def get_video_processor_config(

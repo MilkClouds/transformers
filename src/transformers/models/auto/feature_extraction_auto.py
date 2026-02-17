@@ -13,7 +13,6 @@
 # limitations under the License.
 """AutoFeatureExtractor class."""
 
-import importlib
 import os
 from collections import OrderedDict
 
@@ -92,23 +91,11 @@ FEATURE_EXTRACTOR_MAPPING = _LazyAutoMapping(
 
 
 def feature_extractor_class_from_name(class_name: str):
-    from ..._registry import class_from_name
+    from ..._registry import resolve_class_from_name
 
-    result = class_from_name("feature_extractor", class_name)
-    if result is not None:
-        return result
-
-    for extractor in FEATURE_EXTRACTOR_MAPPING._extra_content.values():
-        if getattr(extractor, "__name__", None) == class_name:
-            return extractor
-
-    # We did not find the class, but maybe it's because a dep is missing. In that case, the class will be in the main
-    # init and we return the proper dummy to get an appropriate error message.
-    main_module = importlib.import_module("transformers")
-    if hasattr(main_module, class_name):
-        return getattr(main_module, class_name)
-
-    return None
+    return resolve_class_from_name(
+        class_name, "feature_extractor", extra_content=FEATURE_EXTRACTOR_MAPPING._extra_content.values()
+    )
 
 
 def get_feature_extractor_config(

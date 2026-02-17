@@ -13,7 +13,6 @@
 # limitations under the License.
 """Auto Config class."""
 
-import importlib
 import os
 import re
 from collections import OrderedDict
@@ -1137,23 +1136,7 @@ class _LazyConfigMapping(OrderedDict[str, type[PreTrainedConfig]]):
             return self._extra_content[key]
         if key not in self._mapping:
             raise KeyError(key)
-
-        # Phase 2 delegation: use REGISTRY["config"] for built-in lookups
-        registry = self._get_registry()
-        if key in registry["config"].data:
-            return registry["config"][key]
-
-        # Fallback to original resolution path (for entries not yet in registry)
-        value = self._mapping[key]
-        module_name = model_type_to_module_name(key)
-        module = importlib.import_module(f".{module_name}", "transformers.models")
-        if hasattr(module, value):
-            return getattr(module, value)
-
-        # Some of the mappings have entries model_type -> config of another model type. In that case we try to grab the
-        # object at the top level.
-        transformers_module = importlib.import_module("transformers")
-        return getattr(transformers_module, value)
+        return self._get_registry()["config"][key]
 
     def keys(self) -> list[str]:
         return list(self._mapping.keys()) + list(self._extra_content.keys())

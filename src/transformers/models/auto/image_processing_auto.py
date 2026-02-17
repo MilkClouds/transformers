@@ -13,7 +13,6 @@
 # limitations under the License.
 """AutoImageProcessor class."""
 
-import importlib
 import os
 from collections import OrderedDict
 from typing import TYPE_CHECKING
@@ -247,26 +246,11 @@ def get_image_processor_class_from_name(class_name: str):
     if class_name == "BaseImageProcessorFast":
         return BaseImageProcessorFast
 
-    from ..._registry import class_from_name
+    from ..._registry import resolve_class_from_name
 
-    # Search both slow and fast image processor registries
-    for component in ("image_processor", "image_processor_fast"):
-        result = class_from_name(component, class_name)
-        if result is not None:
-            return result
-
-    for extractors in IMAGE_PROCESSOR_MAPPING._extra_content.values():
-        for extractor in extractors:
-            if getattr(extractor, "__name__", None) == class_name:
-                return extractor
-
-    # We did not find the class, but maybe it's because a dep is missing. In that case, the class will be in the main
-    # init and we return the proper dummy to get an appropriate error message.
-    main_module = importlib.import_module("transformers")
-    if hasattr(main_module, class_name):
-        return getattr(main_module, class_name)
-
-    return None
+    # _extra_content values are tuples of (slow, fast) — flatten for lookup
+    extra = (cls for pair in IMAGE_PROCESSOR_MAPPING._extra_content.values() for cls in pair)
+    return resolve_class_from_name(class_name, "image_processor", "image_processor_fast", extra_content=extra)
 
 
 def get_image_processor_config(

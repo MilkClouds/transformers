@@ -13,7 +13,6 @@
 # limitations under the License.
 """AutoProcessor class."""
 
-import importlib
 import inspect
 import json
 from collections import OrderedDict
@@ -175,23 +174,9 @@ PROCESSOR_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, PROCESSOR_MAPPING_NAM
 
 
 def processor_class_from_name(class_name: str):
-    from ..._registry import class_from_name
+    from ..._registry import resolve_class_from_name
 
-    result = class_from_name("processor", class_name)
-    if result is not None:
-        return result
-
-    for processor in PROCESSOR_MAPPING._extra_content.values():
-        if getattr(processor, "__name__", None) == class_name:
-            return processor
-
-    # We did not find the class, but maybe it's because a dep is missing. In that case, the class will be in the main
-    # init and we return the proper dummy to get an appropriate error message.
-    main_module = importlib.import_module("transformers")
-    if hasattr(main_module, class_name):
-        return getattr(main_module, class_name)
-
-    return None
+    return resolve_class_from_name(class_name, "processor", extra_content=PROCESSOR_MAPPING._extra_content.values())
 
 
 class AutoProcessor:

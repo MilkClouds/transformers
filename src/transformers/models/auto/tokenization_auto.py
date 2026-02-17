@@ -371,24 +371,10 @@ def tokenizer_class_from_name(class_name: str) -> type[Any] | None:
         module = importlib.import_module(".tokenization_mistral_common", "transformers")
         return getattr(module, class_name)
 
-    # Use the unified registry for standard lookups
-    from ..._registry import class_from_name
+    # Standard lookup: registry → _extra_content → transformers fallback
+    from ..._registry import resolve_class_from_name
 
-    result = class_from_name("tokenizer", class_name)
-    if result is not None:
-        return result
-
-    for tokenizer in TOKENIZER_MAPPING._extra_content.values():
-        if getattr(tokenizer, "__name__", None) == class_name:
-            return tokenizer
-
-    # We did not find the class, but maybe it's because a dep is missing. In that case, the class will be in the main
-    # init and we return the proper dummy to get an appropriate error message.
-    main_module = importlib.import_module("transformers")
-    if hasattr(main_module, class_name):
-        return getattr(main_module, class_name)
-
-    return None
+    return resolve_class_from_name(class_name, "tokenizer", extra_content=TOKENIZER_MAPPING._extra_content.values())
 
 
 def get_tokenizer_config(

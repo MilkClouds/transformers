@@ -307,8 +307,7 @@ def class_from_name(component: str, class_name: str):
     """Resolve a class name to its actual class via the registry.
 
     Searches the given component registry for an entry whose class name
-    matches. This replaces the 5 near-identical ``*_class_from_name()``
-    functions scattered across the auto modules.
+    matches.
 
     Args:
         component: Registry component to search (e.g., "processor", "feature_extractor").
@@ -326,11 +325,10 @@ def class_from_name(component: str, class_name: str):
     for model_type, value in registry.data.items():
         raw = value
         if isinstance(raw, ImportString):
-            # Check the class name portion of the import string (after ":")
             _, name = str(raw).rsplit(":", 1)
             if name == class_name:
                 try:
-                    return registry[model_type]  # triggers lazy load
+                    return registry[model_type]
                 except Exception:
                     continue
         elif isinstance(raw, tuple):
@@ -347,6 +345,43 @@ def class_from_name(component: str, class_name: str):
                     return v
         elif hasattr(raw, "__name__") and raw.__name__ == class_name:
             return raw
+    return None
+
+
+def resolve_class_from_name(class_name: str, *components: str, extra_content=None):
+    """Full class name resolution: registry → extra_content → transformers fallback.
+
+    This is the generic version of the per-component ``*_class_from_name()``
+    functions. Each auto module can call this instead of duplicating the
+    3-step lookup pattern.
+
+    Args:
+        class_name: The class name string to resolve.
+        *components: One or more registry component names to search
+            (e.g., ``"processor"`` or ``"image_processor", "image_processor_fast"``).
+        extra_content: Optional dict (or iterable of values) from
+            ``MAPPING._extra_content`` to search after the registry.
+
+    Returns:
+        The resolved class, or None if not found.
+    """
+    # 1. Registry lookup across all requested components
+    for component in components:
+        result = class_from_name(component, class_name)
+        if result is not None:
+            return result
+
+    # 2. Search _extra_content (third-party / dynamic registrations)
+    if extra_content is not None:
+        for item in extra_content:
+            if getattr(item, "__name__", None) == class_name:
+                return item
+
+    # 3. Fallback to top-level transformers module (handles missing-dep dummies)
+    main_module = importlib.import_module("transformers")
+    if hasattr(main_module, class_name):
+        return getattr(main_module, class_name)
+
     return None
 
 
