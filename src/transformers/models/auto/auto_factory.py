@@ -463,7 +463,7 @@ def auto_class_update(cls, checkpoint_for_example: str = "google-bert/bert-base-
     from_config_docstring = from_config_docstring.replace("BaseAutoModelClass", name)
     from_config_docstring = from_config_docstring.replace("checkpoint_placeholder", checkpoint_for_example)
     from_config.__doc__ = from_config_docstring
-    from_config = replace_list_option_in_docstrings(model_mapping._model_mapping, use_model_types=False)(from_config)
+    from_config = replace_list_option_in_docstrings(model_mapping.mapping_names, use_model_types=False)(from_config)
     cls.from_config = classmethod(from_config)
 
     from_pretrained_docstring = FROM_PRETRAINED_TORCH_DOCSTRING
@@ -474,7 +474,7 @@ def auto_class_update(cls, checkpoint_for_example: str = "google-bert/bert-base-
     shortcut = checkpoint_for_example.split("/")[-1].split("-")[0]
     from_pretrained_docstring = from_pretrained_docstring.replace("shortcut_placeholder", shortcut)
     from_pretrained.__doc__ = from_pretrained_docstring
-    from_pretrained = replace_list_option_in_docstrings(model_mapping._model_mapping)(from_pretrained)
+    from_pretrained = replace_list_option_in_docstrings(model_mapping.mapping_names)(from_pretrained)
     cls.from_pretrained = classmethod(from_pretrained)
     return cls
 
@@ -546,19 +546,28 @@ class _LazyAutoMapping(OrderedDict[type[PreTrainedConfig], _LazyAutoMappingValue
     """
     A mapping config to object (model or tokenizer for instance) that will load keys and values when it is accessed.
 
+    When *registry_key* is provided (the normal case for all built-in mappings), lookups are delegated to the
+    unified REGISTRY.  When it is ``None`` (legacy / tests), a direct module-import fallback is used.
+
     Args:
-        - config_mapping: The map model type to config class (e.g., CONFIG_MAPPING_NAMES)
-        - model_mapping: The map model type to model (or tokenizer) class (e.g., MODEL_MAPPING_NAMES)
-        - registry_key: Key into the unified REGISTRY for built-in lookups.
+        config_mapping: The map model type → config class name (CONFIG_MAPPING_NAMES).
+        model_mapping: The map model type → model class name (e.g. MODEL_MAPPING_NAMES).
+        registry_key: Key into the unified REGISTRY (e.g. "model", "causal_lm").
     """
 
     def __init__(self, config_mapping, model_mapping, registry_key=None) -> None:
         self._config_mapping = config_mapping
         self._reverse_config_mapping = {v: k for k, v in config_mapping.items()}
         self._model_mapping = model_mapping
-        self._model_mapping._model_mapping = self
         self._extra_content = {}
         self._registry_key = registry_key
+
+    @property
+    def mapping_names(self):
+        """The raw model_type → class_name dict (e.g. MODEL_MAPPING_NAMES)."""
+        return self._model_mapping
+
+    # --- Registry helpers (used when registry_key is set) ---
 
     def _get_registry(self):
         """Lazy import to avoid circular dependency."""
@@ -566,56 +575,66 @@ class _LazyAutoMapping(OrderedDict[type[PreTrainedConfig], _LazyAutoMappingValue
 
         return REGISTRY
 
+    def _registry_component(self):
+        registry = self._get_registry()
+        return registry["config"], registry[self._registry_key]
+
+    # --- Direct-import fallback (used when registry_key is None) ---
+
+    @staticmethod
+    def _load_attr_from_module(model_type, attr):
+        module_name = model_type_to_module_name(model_type)
+        module = importlib.import_module(f".{module_name}", "transformers.models")
+        return getattribute_from_module(module, attr)
+
+    # --- Mapping interface ---
+
     def __len__(self) -> int:
         if self._registry_key is not None:
-            registry = self._get_registry()
-            config_keys = set(registry["config"].data.keys())
-            comp_keys = set(registry[self._registry_key].data.keys())
-            return len(comp_keys & config_keys) + len(self._extra_content)
-        common_keys = set(self._config_mapping.keys()).intersection(self._model_mapping.keys())
-        return len(common_keys) + len(self._extra_content)
+            config_reg, comp_reg = self._registry_component()
+            return len(set(comp_reg.data) & set(config_reg.data)) + len(self._extra_content)
+        common = set(self._config_mapping) & set(self._model_mapping)
+        return len(common) + len(self._extra_content)
 
     def __getitem__(self, key: type[PreTrainedConfig]) -> _LazyAutoMappingValue:
         if key in self._extra_content:
             return self._extra_content[key]
         model_type = self._reverse_config_mapping[key.__name__]
-
         if self._registry_key is not None:
-            registry = self._get_registry()
-            if model_type in registry[self._registry_key].data:
-                return registry[self._registry_key][model_type]
-
-        # Fallback for non-registry instances or entries not in registry
-        if model_type in self._model_mapping:
-            model_name = self._model_mapping[model_type]
-            return self._load_attr_from_module(model_type, model_name)
-
-        # Maybe there were several model types associated with this config.
-        model_types = [k for k, v in self._config_mapping.items() if v == key.__name__]
-        for mtype in model_types:
-            if mtype in self._model_mapping:
-                model_name = self._model_mapping[mtype]
-                return self._load_attr_from_module(mtype, model_name)
+            _, comp_reg = self._registry_component()
+            if model_type in comp_reg.data:
+                return comp_reg[model_type]
+        elif model_type in self._model_mapping:
+            return self._load_attr_from_module(model_type, self._model_mapping[model_type])
         raise KeyError(key)
-
-    def _load_attr_from_module(self, model_type, attr):
-        module_name = model_type_to_module_name(model_type)
-        module = importlib.import_module(f".{module_name}", "transformers.models")
-        return getattribute_from_module(module, attr)
 
     def keys(self) -> list[type[PreTrainedConfig]]:
         if self._registry_key is not None:
-            registry = self._get_registry()
-            config_reg = registry["config"]
-            comp_reg = registry[self._registry_key]
-            builtin_keys = [config_reg[mt] for mt in comp_reg.data if mt in config_reg.data]
-            return builtin_keys + list(self._extra_content.keys())
-        mapping_keys = [
-            self._load_attr_from_module(key, name)
-            for key, name in self._config_mapping.items()
-            if key in self._model_mapping
-        ]
-        return mapping_keys + list(self._extra_content.keys())
+            config_reg, comp_reg = self._registry_component()
+            return [config_reg[mt] for mt in comp_reg.data if mt in config_reg.data] + list(self._extra_content.keys())
+        return [
+            self._load_attr_from_module(k, n) for k, n in self._config_mapping.items() if k in self._model_mapping
+        ] + list(self._extra_content.keys())
+
+    def values(self) -> list[_LazyAutoMappingValue]:
+        if self._registry_key is not None:
+            config_reg, comp_reg = self._registry_component()
+            return [comp_reg[mt] for mt in comp_reg.data if mt in config_reg.data] + list(self._extra_content.values())
+        return [
+            self._load_attr_from_module(k, n) for k, n in self._model_mapping.items() if k in self._config_mapping
+        ] + list(self._extra_content.values())
+
+    def items(self) -> list[tuple[type[PreTrainedConfig], _LazyAutoMappingValue]]:
+        if self._registry_key is not None:
+            config_reg, comp_reg = self._registry_component()
+            return [(config_reg[mt], comp_reg[mt]) for mt in comp_reg.data if mt in config_reg.data] + list(
+                self._extra_content.items()
+            )
+        return [
+            (self._load_attr_from_module(k, self._config_mapping[k]), self._load_attr_from_module(k, n))
+            for k, n in self._model_mapping.items()
+            if k in self._config_mapping
+        ] + list(self._extra_content.items())
 
     def get(self, key: type[PreTrainedConfig], default: _T) -> _LazyAutoMappingValue | _T:
         try:
@@ -625,37 +644,6 @@ class _LazyAutoMapping(OrderedDict[type[PreTrainedConfig], _LazyAutoMappingValue
 
     def __bool__(self) -> bool:
         return bool(self.keys())
-
-    def values(self) -> list[_LazyAutoMappingValue]:
-        if self._registry_key is not None:
-            registry = self._get_registry()
-            config_reg = registry["config"]
-            comp_reg = registry[self._registry_key]
-            builtin_values = [comp_reg[mt] for mt in comp_reg.data if mt in config_reg.data]
-            return builtin_values + list(self._extra_content.values())
-        mapping_values = [
-            self._load_attr_from_module(key, name)
-            for key, name in self._model_mapping.items()
-            if key in self._config_mapping
-        ]
-        return mapping_values + list(self._extra_content.values())
-
-    def items(self) -> list[tuple[type[PreTrainedConfig], _LazyAutoMappingValue]]:
-        if self._registry_key is not None:
-            registry = self._get_registry()
-            config_reg = registry["config"]
-            comp_reg = registry[self._registry_key]
-            builtin_items = [(config_reg[mt], comp_reg[mt]) for mt in comp_reg.data if mt in config_reg.data]
-            return builtin_items + list(self._extra_content.items())
-        mapping_items = [
-            (
-                self._load_attr_from_module(key, self._config_mapping[key]),
-                self._load_attr_from_module(key, self._model_mapping[key]),
-            )
-            for key in self._model_mapping
-            if key in self._config_mapping
-        ]
-        return mapping_items + list(self._extra_content.items())
 
     def __iter__(self) -> Iterator[type[PreTrainedConfig]]:
         return iter(self.keys())
@@ -667,19 +655,16 @@ class _LazyAutoMapping(OrderedDict[type[PreTrainedConfig], _LazyAutoMappingValue
             return False
         model_type = self._reverse_config_mapping[item.__name__]
         if self._registry_key is not None:
-            registry = self._get_registry()
-            return model_type in registry[self._registry_key].data
+            _, comp_reg = self._registry_component()
+            return model_type in comp_reg.data
         return model_type in self._model_mapping
 
     def register(self, key: type[PreTrainedConfig], value: _LazyAutoMappingValue, exist_ok=False) -> None:
-        """
-        Register a new model in this mapping.
-        """
+        """Register a new model in this mapping."""
         if hasattr(key, "__name__") and key.__name__ in self._reverse_config_mapping:
             model_type = self._reverse_config_mapping[key.__name__]
             if model_type in self._model_mapping and not exist_ok:
                 raise ValueError(f"'{key}' is already used by a Transformers model.")
-
         self._extra_content[key] = value
 
 

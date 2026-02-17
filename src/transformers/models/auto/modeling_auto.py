@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+# ruff: noqa: F822 — mappings and AutoModel classes are dynamically created via globals()[] below
 """Auto Model class."""
 
 import os
@@ -1741,375 +1742,126 @@ MODEL_FOR_AUDIO_TOKENIZATION_NAMES = OrderedDict(
     ]
 )
 
+# ---------------------------------------------------------------------------
+# Data-driven AutoModel class generation
+# ---------------------------------------------------------------------------
+# Each entry: (class_name, mapping_names_dict, mapping_export_name, registry_key, head_doc, checkpoint)
+# - head_doc=None means no auto_class_update (no docstring customisation).
+# - checkpoint=None defaults to "google-bert/bert-base-cased".
 # fmt: off
-MODEL_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_MAPPING_NAMES, registry_key="model")
-MODEL_FOR_PRETRAINING_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_PRETRAINING_MAPPING_NAMES, registry_key="pretraining")
-MODEL_FOR_CAUSAL_LM_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_CAUSAL_LM_MAPPING_NAMES, registry_key="causal_lm")
-MODEL_FOR_CAUSAL_IMAGE_MODELING_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_CAUSAL_IMAGE_MODELING_MAPPING_NAMES, registry_key="causal_image_modeling")
-MODEL_FOR_IMAGE_CLASSIFICATION_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_IMAGE_CLASSIFICATION_MAPPING_NAMES, registry_key="image_classification")
-MODEL_FOR_ZERO_SHOT_IMAGE_CLASSIFICATION_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_ZERO_SHOT_IMAGE_CLASSIFICATION_MAPPING_NAMES, registry_key="zero_shot_image_classification")
-MODEL_FOR_IMAGE_SEGMENTATION_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_IMAGE_SEGMENTATION_MAPPING_NAMES, registry_key="image_segmentation")
-MODEL_FOR_SEMANTIC_SEGMENTATION_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_SEMANTIC_SEGMENTATION_MAPPING_NAMES, registry_key="semantic_segmentation")
-MODEL_FOR_INSTANCE_SEGMENTATION_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_INSTANCE_SEGMENTATION_MAPPING_NAMES, registry_key="instance_segmentation")
-MODEL_FOR_UNIVERSAL_SEGMENTATION_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_UNIVERSAL_SEGMENTATION_MAPPING_NAMES, registry_key="universal_segmentation")
-MODEL_FOR_VIDEO_CLASSIFICATION_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_VIDEO_CLASSIFICATION_MAPPING_NAMES, registry_key="video_classification")
-MODEL_FOR_IMAGE_TEXT_TO_TEXT_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_IMAGE_TEXT_TO_TEXT_MAPPING_NAMES, registry_key="image_text_to_text")
-MODEL_FOR_MULTIMODAL_LM_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_MULTIMODAL_LM_MAPPING_NAMES, registry_key="multimodal_lm")
-MODEL_FOR_RETRIEVAL_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_RETRIEVAL_MAPPING_NAMES, registry_key="retrieval")
-MODEL_FOR_VISUAL_QUESTION_ANSWERING_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_VISUAL_QUESTION_ANSWERING_MAPPING_NAMES, registry_key="visual_question_answering")
-MODEL_FOR_DOCUMENT_QUESTION_ANSWERING_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_DOCUMENT_QUESTION_ANSWERING_MAPPING_NAMES, registry_key="document_question_answering")
-MODEL_FOR_MASKED_LM_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_MASKED_LM_MAPPING_NAMES, registry_key="masked_lm")
-MODEL_FOR_IMAGE_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_IMAGE_MAPPING_NAMES, registry_key="image")
-MODEL_FOR_MASKED_IMAGE_MODELING_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_MASKED_IMAGE_MODELING_MAPPING_NAMES, registry_key="masked_image_modeling")
-MODEL_FOR_OBJECT_DETECTION_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_OBJECT_DETECTION_MAPPING_NAMES, registry_key="object_detection")
-MODEL_FOR_ZERO_SHOT_OBJECT_DETECTION_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_ZERO_SHOT_OBJECT_DETECTION_MAPPING_NAMES, registry_key="zero_shot_object_detection")
-MODEL_FOR_DEPTH_ESTIMATION_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_DEPTH_ESTIMATION_MAPPING_NAMES, registry_key="depth_estimation")
-MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING_NAMES, registry_key="seq_to_seq_causal_lm")
-MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING_NAMES, registry_key="sequence_classification")
-MODEL_FOR_QUESTION_ANSWERING_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_QUESTION_ANSWERING_MAPPING_NAMES, registry_key="question_answering")
-MODEL_FOR_TABLE_QUESTION_ANSWERING_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_TABLE_QUESTION_ANSWERING_MAPPING_NAMES, registry_key="table_question_answering")
-MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING_NAMES, registry_key="token_classification")
-MODEL_FOR_MULTIPLE_CHOICE_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_MULTIPLE_CHOICE_MAPPING_NAMES, registry_key="multiple_choice")
-MODEL_FOR_NEXT_SENTENCE_PREDICTION_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_NEXT_SENTENCE_PREDICTION_MAPPING_NAMES, registry_key="next_sentence_prediction")
-MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING_NAMES, registry_key="audio_classification")
-MODEL_FOR_CTC_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_CTC_MAPPING_NAMES, registry_key="ctc")
-MODEL_FOR_SPEECH_SEQ_2_SEQ_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_SPEECH_SEQ_2_SEQ_MAPPING_NAMES, registry_key="speech_seq_to_seq")
-MODEL_FOR_AUDIO_FRAME_CLASSIFICATION_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_AUDIO_FRAME_CLASSIFICATION_MAPPING_NAMES, registry_key="audio_frame_classification")
-MODEL_FOR_AUDIO_XVECTOR_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_AUDIO_XVECTOR_MAPPING_NAMES, registry_key="audio_xvector")
-MODEL_FOR_TEXT_TO_SPECTROGRAM_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_TEXT_TO_SPECTROGRAM_MAPPING_NAMES, registry_key="text_to_spectrogram")
-MODEL_FOR_TEXT_TO_WAVEFORM_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_TEXT_TO_WAVEFORM_MAPPING_NAMES, registry_key="text_to_waveform")
-MODEL_FOR_BACKBONE_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_BACKBONE_MAPPING_NAMES, registry_key="backbone")
-MODEL_FOR_MASK_GENERATION_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_MASK_GENERATION_MAPPING_NAMES, registry_key="mask_generation")
-MODEL_FOR_KEYPOINT_DETECTION_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_KEYPOINT_DETECTION_MAPPING_NAMES, registry_key="keypoint_detection")
-MODEL_FOR_KEYPOINT_MATCHING_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_KEYPOINT_MATCHING_MAPPING_NAMES, registry_key="keypoint_matching")
-MODEL_FOR_TEXT_ENCODING_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_TEXT_ENCODING_MAPPING_NAMES, registry_key="text_encoding")
-MODEL_FOR_TIME_SERIES_CLASSIFICATION_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_TIME_SERIES_CLASSIFICATION_MAPPING_NAMES, registry_key="time_series_classification")
-MODEL_FOR_TIME_SERIES_REGRESSION_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_TIME_SERIES_REGRESSION_MAPPING_NAMES, registry_key="time_series_regression")
-MODEL_FOR_TIME_SERIES_PREDICTION_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_TIME_SERIES_PREDICTION_MAPPING_NAMES, registry_key="time_series_prediction")
-MODEL_FOR_IMAGE_TO_IMAGE_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_IMAGE_TO_IMAGE_MAPPING_NAMES, registry_key="image_to_image")
-MODEL_FOR_AUDIO_TOKENIZATION_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, MODEL_FOR_AUDIO_TOKENIZATION_NAMES, registry_key="audio_tokenization")
+_AUTO_MODEL_TABLE = [
+    # Classes WITHOUT auto_class_update (head_doc=None)
+    ("AutoModelForMaskGeneration",      MODEL_FOR_MASK_GENERATION_MAPPING_NAMES,            "MODEL_FOR_MASK_GENERATION_MAPPING",            "mask_generation",                  None, None),
+    ("AutoModelForKeypointDetection",   MODEL_FOR_KEYPOINT_DETECTION_MAPPING_NAMES,         "MODEL_FOR_KEYPOINT_DETECTION_MAPPING",         "keypoint_detection",               None, None),
+    ("AutoModelForKeypointMatching",    MODEL_FOR_KEYPOINT_MATCHING_MAPPING_NAMES,           "MODEL_FOR_KEYPOINT_MATCHING_MAPPING",          "keypoint_matching",                None, None),
+    ("AutoModelForTextEncoding",        MODEL_FOR_TEXT_ENCODING_MAPPING_NAMES,               "MODEL_FOR_TEXT_ENCODING_MAPPING",               "text_encoding",                   None, None),
+    ("AutoModelForImageToImage",        MODEL_FOR_IMAGE_TO_IMAGE_MAPPING_NAMES,              "MODEL_FOR_IMAGE_TO_IMAGE_MAPPING",             "image_to_image",                  None, None),
+    ("AutoModelForTextToSpectrogram",   MODEL_FOR_TEXT_TO_SPECTROGRAM_MAPPING_NAMES,         "MODEL_FOR_TEXT_TO_SPECTROGRAM_MAPPING",         "text_to_spectrogram",             None, None),
+    ("AutoModelForTextToWaveform",      MODEL_FOR_TEXT_TO_WAVEFORM_MAPPING_NAMES,            "MODEL_FOR_TEXT_TO_WAVEFORM_MAPPING",            "text_to_waveform",                None, None),
+    # Classes WITH auto_class_update (head_doc is a string, possibly "")
+    ("AutoModel",                              MODEL_MAPPING_NAMES,                                   "MODEL_MAPPING",                                   "model",                            "", None),
+    ("AutoModelForPreTraining",                MODEL_FOR_PRETRAINING_MAPPING_NAMES,                   "MODEL_FOR_PRETRAINING_MAPPING",                   "pretraining",                      "pretraining", None),
+    ("AutoModelForCausalLM",                   MODEL_FOR_CAUSAL_LM_MAPPING_NAMES,                     "MODEL_FOR_CAUSAL_LM_MAPPING",                     "causal_lm",                        "causal language modeling", None),
+    ("AutoModelForMaskedLM",                   MODEL_FOR_MASKED_LM_MAPPING_NAMES,                     "MODEL_FOR_MASKED_LM_MAPPING",                     "masked_lm",                        "masked language modeling", None),
+    ("AutoModelForSeq2SeqLM",                  MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING_NAMES,          "MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING",          "seq_to_seq_causal_lm",             "sequence-to-sequence language modeling", "google-t5/t5-base"),
+    ("AutoModelForSequenceClassification",     MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING_NAMES,       "MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING",       "sequence_classification",           "sequence classification", None),
+    ("AutoModelForQuestionAnswering",          MODEL_FOR_QUESTION_ANSWERING_MAPPING_NAMES,            "MODEL_FOR_QUESTION_ANSWERING_MAPPING",            "question_answering",               "question answering", None),
+    ("AutoModelForTableQuestionAnswering",     MODEL_FOR_TABLE_QUESTION_ANSWERING_MAPPING_NAMES,      "MODEL_FOR_TABLE_QUESTION_ANSWERING_MAPPING",      "table_question_answering",         "table question answering", "google/tapas-base-finetuned-wtq"),
+    ("AutoModelForVisualQuestionAnswering",    MODEL_FOR_VISUAL_QUESTION_ANSWERING_MAPPING_NAMES,     "MODEL_FOR_VISUAL_QUESTION_ANSWERING_MAPPING",     "visual_question_answering",        "visual question answering", "dandelin/vilt-b32-finetuned-vqa"),
+    ("AutoModelForDocumentQuestionAnswering",  MODEL_FOR_DOCUMENT_QUESTION_ANSWERING_MAPPING_NAMES,   "MODEL_FOR_DOCUMENT_QUESTION_ANSWERING_MAPPING",   "document_question_answering",      "document question answering", 'impira/layoutlm-document-qa", revision="52e01b3'),
+    ("AutoModelForTokenClassification",        MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING_NAMES,          "MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING",          "token_classification",             "token classification", None),
+    ("AutoModelForMultipleChoice",             MODEL_FOR_MULTIPLE_CHOICE_MAPPING_NAMES,               "MODEL_FOR_MULTIPLE_CHOICE_MAPPING",               "multiple_choice",                  "multiple choice", None),
+    ("AutoModelForNextSentencePrediction",     MODEL_FOR_NEXT_SENTENCE_PREDICTION_MAPPING_NAMES,      "MODEL_FOR_NEXT_SENTENCE_PREDICTION_MAPPING",      "next_sentence_prediction",         "next sentence prediction", None),
+    ("AutoModelForImageClassification",        MODEL_FOR_IMAGE_CLASSIFICATION_MAPPING_NAMES,          "MODEL_FOR_IMAGE_CLASSIFICATION_MAPPING",          "image_classification",             "image classification", None),
+    ("AutoModelForZeroShotImageClassification", MODEL_FOR_ZERO_SHOT_IMAGE_CLASSIFICATION_MAPPING_NAMES, "MODEL_FOR_ZERO_SHOT_IMAGE_CLASSIFICATION_MAPPING", "zero_shot_image_classification", "zero-shot image classification", None),
+    ("AutoModelForImageSegmentation",          MODEL_FOR_IMAGE_SEGMENTATION_MAPPING_NAMES,            "MODEL_FOR_IMAGE_SEGMENTATION_MAPPING",            "image_segmentation",               "image segmentation", None),
+    ("AutoModelForSemanticSegmentation",       MODEL_FOR_SEMANTIC_SEGMENTATION_MAPPING_NAMES,         "MODEL_FOR_SEMANTIC_SEGMENTATION_MAPPING",         "semantic_segmentation",            "semantic segmentation", None),
+    ("AutoModelForTimeSeriesPrediction",       MODEL_FOR_TIME_SERIES_PREDICTION_MAPPING_NAMES,        "MODEL_FOR_TIME_SERIES_PREDICTION_MAPPING",        "time_series_prediction",           "time-series prediction", None),
+    ("AutoModelForUniversalSegmentation",      MODEL_FOR_UNIVERSAL_SEGMENTATION_MAPPING_NAMES,        "MODEL_FOR_UNIVERSAL_SEGMENTATION_MAPPING",        "universal_segmentation",           "universal image segmentation", None),
+    ("AutoModelForInstanceSegmentation",       MODEL_FOR_INSTANCE_SEGMENTATION_MAPPING_NAMES,         "MODEL_FOR_INSTANCE_SEGMENTATION_MAPPING",         "instance_segmentation",            "instance segmentation", None),
+    ("AutoModelForObjectDetection",            MODEL_FOR_OBJECT_DETECTION_MAPPING_NAMES,              "MODEL_FOR_OBJECT_DETECTION_MAPPING",              "object_detection",                 "object detection", None),
+    ("AutoModelForZeroShotObjectDetection",    MODEL_FOR_ZERO_SHOT_OBJECT_DETECTION_MAPPING_NAMES,    "MODEL_FOR_ZERO_SHOT_OBJECT_DETECTION_MAPPING",    "zero_shot_object_detection",       "zero-shot object detection", None),
+    ("AutoModelForDepthEstimation",            MODEL_FOR_DEPTH_ESTIMATION_MAPPING_NAMES,              "MODEL_FOR_DEPTH_ESTIMATION_MAPPING",              "depth_estimation",                 "depth estimation", None),
+    ("AutoModelForVideoClassification",        MODEL_FOR_VIDEO_CLASSIFICATION_MAPPING_NAMES,          "MODEL_FOR_VIDEO_CLASSIFICATION_MAPPING",          "video_classification",             "video classification", None),
+    ("AutoModelForImageTextToText",            MODEL_FOR_IMAGE_TEXT_TO_TEXT_MAPPING_NAMES,             "MODEL_FOR_IMAGE_TEXT_TO_TEXT_MAPPING",             "image_text_to_text",               "image-text-to-text modeling", None),
+    ("AutoModelForMultimodalLM",               MODEL_FOR_MULTIMODAL_LM_MAPPING_NAMES,                 "MODEL_FOR_MULTIMODAL_LM_MAPPING",                 "multimodal_lm",                   "multimodal generation", None),
+    ("AutoModelForAudioClassification",        MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING_NAMES,          "MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING",          "audio_classification",             "audio classification", None),
+    ("AutoModelForCTC",                        MODEL_FOR_CTC_MAPPING_NAMES,                           "MODEL_FOR_CTC_MAPPING",                           "ctc",                              "connectionist temporal classification", None),
+    ("AutoModelForSpeechSeq2Seq",              MODEL_FOR_SPEECH_SEQ_2_SEQ_MAPPING_NAMES,              "MODEL_FOR_SPEECH_SEQ_2_SEQ_MAPPING",              "speech_seq_to_seq",                "sequence-to-sequence speech-to-text modeling", None),
+    ("AutoModelForAudioFrameClassification",   MODEL_FOR_AUDIO_FRAME_CLASSIFICATION_MAPPING_NAMES,    "MODEL_FOR_AUDIO_FRAME_CLASSIFICATION_MAPPING",    "audio_frame_classification",       "audio frame (token) classification", None),
+    ("AutoModelForAudioXVector",               MODEL_FOR_AUDIO_XVECTOR_MAPPING_NAMES,                 "MODEL_FOR_AUDIO_XVECTOR_MAPPING",                 "audio_xvector",                    "audio retrieval via x-vector", None),
+    ("AutoModelForMaskedImageModeling",        MODEL_FOR_MASKED_IMAGE_MODELING_MAPPING_NAMES,          "MODEL_FOR_MASKED_IMAGE_MODELING_MAPPING",         "masked_image_modeling",            "masked image modeling", None),
+    ("AutoModelForAudioTokenization",          MODEL_FOR_AUDIO_TOKENIZATION_NAMES,                    "MODEL_FOR_AUDIO_TOKENIZATION_MAPPING",            "audio_tokenization",               "audio tokenization through codebooks", None),
+]
 # fmt: on
 
+# Mapping-only entries (no AutoModel class, just the _LazyAutoMapping export).
+# These have MAPPING_NAMES dicts but no corresponding AutoModelForXxx class.
+# fmt: off
+_MAPPING_ONLY = [
+    (MODEL_FOR_CAUSAL_IMAGE_MODELING_MAPPING_NAMES, "MODEL_FOR_CAUSAL_IMAGE_MODELING_MAPPING", "causal_image_modeling"),
+    (MODEL_FOR_IMAGE_MAPPING_NAMES,                 "MODEL_FOR_IMAGE_MAPPING",                 "image"),
+    (MODEL_FOR_RETRIEVAL_MAPPING_NAMES,             "MODEL_FOR_RETRIEVAL_MAPPING",             "retrieval"),
+    (MODEL_FOR_TIME_SERIES_CLASSIFICATION_MAPPING_NAMES, "MODEL_FOR_TIME_SERIES_CLASSIFICATION_MAPPING", "time_series_classification"),
+    (MODEL_FOR_TIME_SERIES_REGRESSION_MAPPING_NAMES,     "MODEL_FOR_TIME_SERIES_REGRESSION_MAPPING",     "time_series_regression"),
+]
+# fmt: on
 
-class AutoModelForMaskGeneration(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_MASK_GENERATION_MAPPING
+# --- Generate all mappings and AutoModel classes from the tables above ---
+_module = globals()
+
+# 1. Mapping-only entries (no class)
+for _names_dict, _export_name, _reg_key in _MAPPING_ONLY:
+    _module[_export_name] = _LazyAutoMapping(CONFIG_MAPPING_NAMES, _names_dict, registry_key=_reg_key)
+
+# 2. AutoModel classes
+for _cls_name, _names_dict, _export_name, _reg_key, _head_doc, _checkpoint in _AUTO_MODEL_TABLE:
+    _mapping = _LazyAutoMapping(CONFIG_MAPPING_NAMES, _names_dict, registry_key=_reg_key)
+    _module[_export_name] = _mapping
+    _cls = type(_cls_name, (_BaseAutoModelClass,), {"_model_mapping": _mapping})
+    if _head_doc is not None:
+        _kwargs = {"head_doc": _head_doc}
+        if _checkpoint is not None:
+            _kwargs["checkpoint_for_example"] = _checkpoint
+        _cls = auto_class_update(_cls, **_kwargs)
+    _module[_cls_name] = _cls
+
+# 3. Special cases: custom from_pretrained override for better type hints
 
 
-class AutoModelForKeypointDetection(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_KEYPOINT_DETECTION_MAPPING
+def _make_generate_from_pretrained(base_cls):
+    """Create a from_pretrained classmethod with _BaseModelWithGenerate return type hint."""
+    existing_doc = getattr(base_cls.from_pretrained, "__func__", base_cls.from_pretrained).__doc__
 
-
-class AutoModelForKeypointMatching(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_KEYPOINT_MATCHING_MAPPING
-
-
-class AutoModelForTextEncoding(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_TEXT_ENCODING_MAPPING
-
-
-class AutoModelForImageToImage(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_IMAGE_TO_IMAGE_MAPPING
-
-
-class AutoModel(_BaseAutoModelClass):
-    _model_mapping = MODEL_MAPPING
-
-
-AutoModel = auto_class_update(AutoModel)
-
-
-class AutoModelForPreTraining(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_PRETRAINING_MAPPING
-
-
-AutoModelForPreTraining = auto_class_update(AutoModelForPreTraining, head_doc="pretraining")
-
-
-class AutoModelForCausalLM(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_CAUSAL_LM_MAPPING
-
-    # override to give better return typehint
-    @classmethod
+    @classmethod  # type: ignore[misc]
     def from_pretrained(
-        cls: type["AutoModelForCausalLM"],
+        cls,
         pretrained_model_name_or_path: str | os.PathLike[str],
         *model_args,
         **kwargs,
     ) -> "_BaseModelWithGenerate":
-        return super().from_pretrained(pretrained_model_name_or_path, *model_args, **kwargs)
+        return super(base_cls, cls).from_pretrained(pretrained_model_name_or_path, *model_args, **kwargs)
+
+    from_pretrained.__func__.__doc__ = existing_doc
+    return from_pretrained
 
 
-AutoModelForCausalLM = auto_class_update(AutoModelForCausalLM, head_doc="causal language modeling")
+for _name in ("AutoModelForCausalLM", "AutoModelForImageTextToText"):
+    _module[_name].from_pretrained = _make_generate_from_pretrained(_module[_name])
 
-
-class AutoModelForMaskedLM(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_MASKED_LM_MAPPING
-
-
-AutoModelForMaskedLM = auto_class_update(AutoModelForMaskedLM, head_doc="masked language modeling")
-
-
-class AutoModelForSeq2SeqLM(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING
-
-
-AutoModelForSeq2SeqLM = auto_class_update(
-    AutoModelForSeq2SeqLM,
-    head_doc="sequence-to-sequence language modeling",
-    checkpoint_for_example="google-t5/t5-base",
+# 4. AutoBackbone uses a different base class
+MODEL_FOR_BACKBONE_MAPPING = _LazyAutoMapping(
+    CONFIG_MAPPING_NAMES, MODEL_FOR_BACKBONE_MAPPING_NAMES, registry_key="backbone"
 )
-
-
-class AutoModelForSequenceClassification(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING
-
-
-AutoModelForSequenceClassification = auto_class_update(
-    AutoModelForSequenceClassification, head_doc="sequence classification"
-)
-
-
-class AutoModelForQuestionAnswering(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_QUESTION_ANSWERING_MAPPING
-
-
-AutoModelForQuestionAnswering = auto_class_update(AutoModelForQuestionAnswering, head_doc="question answering")
-
-
-class AutoModelForTableQuestionAnswering(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_TABLE_QUESTION_ANSWERING_MAPPING
-
-
-AutoModelForTableQuestionAnswering = auto_class_update(
-    AutoModelForTableQuestionAnswering,
-    head_doc="table question answering",
-    checkpoint_for_example="google/tapas-base-finetuned-wtq",
-)
-
-
-class AutoModelForVisualQuestionAnswering(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_VISUAL_QUESTION_ANSWERING_MAPPING
-
-
-AutoModelForVisualQuestionAnswering = auto_class_update(
-    AutoModelForVisualQuestionAnswering,
-    head_doc="visual question answering",
-    checkpoint_for_example="dandelin/vilt-b32-finetuned-vqa",
-)
-
-
-class AutoModelForDocumentQuestionAnswering(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_DOCUMENT_QUESTION_ANSWERING_MAPPING
-
-
-AutoModelForDocumentQuestionAnswering = auto_class_update(
-    AutoModelForDocumentQuestionAnswering,
-    head_doc="document question answering",
-    checkpoint_for_example='impira/layoutlm-document-qa", revision="52e01b3',
-)
-
-
-class AutoModelForTokenClassification(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING
-
-
-AutoModelForTokenClassification = auto_class_update(AutoModelForTokenClassification, head_doc="token classification")
-
-
-class AutoModelForMultipleChoice(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_MULTIPLE_CHOICE_MAPPING
-
-
-AutoModelForMultipleChoice = auto_class_update(AutoModelForMultipleChoice, head_doc="multiple choice")
-
-
-class AutoModelForNextSentencePrediction(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_NEXT_SENTENCE_PREDICTION_MAPPING
-
-
-AutoModelForNextSentencePrediction = auto_class_update(
-    AutoModelForNextSentencePrediction, head_doc="next sentence prediction"
-)
-
-
-class AutoModelForImageClassification(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_IMAGE_CLASSIFICATION_MAPPING
-
-
-AutoModelForImageClassification = auto_class_update(AutoModelForImageClassification, head_doc="image classification")
-
-
-class AutoModelForZeroShotImageClassification(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_ZERO_SHOT_IMAGE_CLASSIFICATION_MAPPING
-
-
-AutoModelForZeroShotImageClassification = auto_class_update(
-    AutoModelForZeroShotImageClassification, head_doc="zero-shot image classification"
-)
-
-
-class AutoModelForImageSegmentation(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_IMAGE_SEGMENTATION_MAPPING
-
-
-AutoModelForImageSegmentation = auto_class_update(AutoModelForImageSegmentation, head_doc="image segmentation")
-
-
-class AutoModelForSemanticSegmentation(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_SEMANTIC_SEGMENTATION_MAPPING
-
-
-AutoModelForSemanticSegmentation = auto_class_update(
-    AutoModelForSemanticSegmentation, head_doc="semantic segmentation"
-)
-
-
-class AutoModelForTimeSeriesPrediction(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_TIME_SERIES_PREDICTION_MAPPING
-
-
-AutoModelForTimeSeriesPrediction = auto_class_update(
-    AutoModelForTimeSeriesPrediction, head_doc="time-series prediction"
-)
-
-
-class AutoModelForUniversalSegmentation(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_UNIVERSAL_SEGMENTATION_MAPPING
-
-
-AutoModelForUniversalSegmentation = auto_class_update(
-    AutoModelForUniversalSegmentation, head_doc="universal image segmentation"
-)
-
-
-class AutoModelForInstanceSegmentation(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_INSTANCE_SEGMENTATION_MAPPING
-
-
-AutoModelForInstanceSegmentation = auto_class_update(
-    AutoModelForInstanceSegmentation, head_doc="instance segmentation"
-)
-
-
-class AutoModelForObjectDetection(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_OBJECT_DETECTION_MAPPING
-
-
-AutoModelForObjectDetection = auto_class_update(AutoModelForObjectDetection, head_doc="object detection")
-
-
-class AutoModelForZeroShotObjectDetection(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_ZERO_SHOT_OBJECT_DETECTION_MAPPING
-
-
-AutoModelForZeroShotObjectDetection = auto_class_update(
-    AutoModelForZeroShotObjectDetection, head_doc="zero-shot object detection"
-)
-
-
-class AutoModelForDepthEstimation(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_DEPTH_ESTIMATION_MAPPING
-
-
-AutoModelForDepthEstimation = auto_class_update(AutoModelForDepthEstimation, head_doc="depth estimation")
-
-
-class AutoModelForVideoClassification(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_VIDEO_CLASSIFICATION_MAPPING
-
-
-AutoModelForVideoClassification = auto_class_update(AutoModelForVideoClassification, head_doc="video classification")
-
-
-class AutoModelForImageTextToText(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_IMAGE_TEXT_TO_TEXT_MAPPING
-
-    # override to give better return typehint
-    @classmethod
-    def from_pretrained(
-        cls: type["AutoModelForImageTextToText"],
-        pretrained_model_name_or_path: str | os.PathLike[str],
-        *model_args,
-        **kwargs,
-    ) -> "_BaseModelWithGenerate":
-        return super().from_pretrained(pretrained_model_name_or_path, *model_args, **kwargs)
-
-
-AutoModelForImageTextToText = auto_class_update(AutoModelForImageTextToText, head_doc="image-text-to-text modeling")
-
-
-class AutoModelForMultimodalLM(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_MULTIMODAL_LM_MAPPING
-
-
-AutoModelForMultimodalLM = auto_class_update(AutoModelForMultimodalLM, head_doc="multimodal generation")
-
-
-class AutoModelForAudioClassification(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING
-
-
-AutoModelForAudioClassification = auto_class_update(AutoModelForAudioClassification, head_doc="audio classification")
-
-
-class AutoModelForCTC(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_CTC_MAPPING
-
-
-AutoModelForCTC = auto_class_update(AutoModelForCTC, head_doc="connectionist temporal classification")
-
-
-class AutoModelForSpeechSeq2Seq(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_SPEECH_SEQ_2_SEQ_MAPPING
-
-
-AutoModelForSpeechSeq2Seq = auto_class_update(
-    AutoModelForSpeechSeq2Seq, head_doc="sequence-to-sequence speech-to-text modeling"
-)
-
-
-class AutoModelForAudioFrameClassification(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_AUDIO_FRAME_CLASSIFICATION_MAPPING
-
-
-AutoModelForAudioFrameClassification = auto_class_update(
-    AutoModelForAudioFrameClassification, head_doc="audio frame (token) classification"
-)
-
-
-class AutoModelForAudioXVector(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_AUDIO_XVECTOR_MAPPING
-
-
-class AutoModelForTextToSpectrogram(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_TEXT_TO_SPECTROGRAM_MAPPING
-
-
-class AutoModelForTextToWaveform(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_TEXT_TO_WAVEFORM_MAPPING
 
 
 class AutoBackbone(_BaseAutoBackboneClass):
     _model_mapping = MODEL_FOR_BACKBONE_MAPPING
 
 
-AutoModelForAudioXVector = auto_class_update(AutoModelForAudioXVector, head_doc="audio retrieval via x-vector")
-
-
-class AutoModelForMaskedImageModeling(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_MASKED_IMAGE_MODELING_MAPPING
-
-
-AutoModelForMaskedImageModeling = auto_class_update(AutoModelForMaskedImageModeling, head_doc="masked image modeling")
-
-
-class AutoModelForAudioTokenization(_BaseAutoModelClass):
-    _model_mapping = MODEL_FOR_AUDIO_TOKENIZATION_MAPPING
-
-
-AutoModelForAudioTokenization = auto_class_update(
-    AutoModelForAudioTokenization, head_doc="audio tokenization through codebooks"
-)
+# Clean up module namespace
+del _module, _cls_name, _names_dict, _export_name, _reg_key, _head_doc, _checkpoint
+del _mapping, _cls, _kwargs, _name
 
 
 __all__ = [
