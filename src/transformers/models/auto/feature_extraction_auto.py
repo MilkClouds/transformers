@@ -23,7 +23,6 @@ from ...feature_extraction_utils import FeatureExtractionMixin
 from ...utils import CONFIG_NAME, FEATURE_EXTRACTOR_NAME, PROCESSOR_NAME, cached_file, logging, safe_load_json_file
 from .auto_factory import _LazyAutoMapping
 from .configuration_auto import (
-    CONFIG_MAPPING_NAMES,
     AutoConfig,
     replace_list_option_in_docstrings,
 )
@@ -85,9 +84,7 @@ FEATURE_EXTRACTOR_MAPPING_NAMES = OrderedDict(
     ]
 )
 
-FEATURE_EXTRACTOR_MAPPING = _LazyAutoMapping(
-    CONFIG_MAPPING_NAMES, FEATURE_EXTRACTOR_MAPPING_NAMES, registry_key="feature_extractor"
-)
+FEATURE_EXTRACTOR_MAPPING = _LazyAutoMapping("feature_extractor")
 
 
 def feature_extractor_class_from_name(class_name: str):

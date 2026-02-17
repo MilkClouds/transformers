@@ -29,7 +29,6 @@ from transformers._registry import (
     get_model_info,
     list_model_types,
 )
-from transformers.models.auto.auto_factory import getattribute_from_module
 from transformers.models.auto.configuration_auto import (
     CONFIG_MAPPING_NAMES,
     model_type_to_module_name,
@@ -46,11 +45,29 @@ from transformers.models.auto.video_processing_auto import VIDEO_PROCESSOR_MAPPI
 # ---------------------------------------------------------------------------
 
 
+def _getattribute_from_module(module, attr):
+    """Inlined copy of the old ``getattribute_from_module`` for equivalence testing."""
+    if attr is None:
+        return None
+    if isinstance(attr, tuple):
+        return tuple(_getattribute_from_module(module, a) for a in attr)
+    if hasattr(module, attr):
+        return getattr(module, attr)
+    transformers_module = importlib.import_module("transformers")
+    if module != transformers_module:
+        try:
+            return _getattribute_from_module(transformers_module, attr)
+        except ValueError:
+            raise ValueError(f"Could not find {attr} neither in {module} nor in {transformers_module}!")
+    else:
+        raise ValueError(f"Could not find {attr} in {transformers_module}!")
+
+
 def _resolve_old(model_type: str, class_name: str):
     """Resolve a class using the old system (importlib + getattribute_from_module)."""
     module_name = model_type_to_module_name(model_type)
     module = importlib.import_module(f".{module_name}", "transformers.models")
-    return getattribute_from_module(module, class_name)
+    return _getattribute_from_module(module, class_name)
 
 
 # ---------------------------------------------------------------------------

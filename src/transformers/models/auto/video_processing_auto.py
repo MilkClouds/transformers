@@ -34,7 +34,6 @@ from ...utils.import_utils import requires
 from ...video_processing_utils import BaseVideoProcessor
 from .auto_factory import _LazyAutoMapping
 from .configuration_auto import (
-    CONFIG_MAPPING_NAMES,
     AutoConfig,
     replace_list_option_in_docstrings,
 )
@@ -88,9 +87,7 @@ for model_type, video_processors in VIDEO_PROCESSOR_MAPPING_NAMES.items():
 
     VIDEO_PROCESSOR_MAPPING_NAMES[model_type] = fast_video_processor_class
 
-VIDEO_PROCESSOR_MAPPING = _LazyAutoMapping(
-    CONFIG_MAPPING_NAMES, VIDEO_PROCESSOR_MAPPING_NAMES, registry_key="video_processor"
-)
+VIDEO_PROCESSOR_MAPPING = _LazyAutoMapping("video_processor")
 
 
 def video_processor_class_from_name(class_name: str):

@@ -25,7 +25,6 @@ from .auto_factory import (
     _LazyAutoMapping,
     auto_class_update,
 )
-from .configuration_auto import CONFIG_MAPPING_NAMES
 
 
 if TYPE_CHECKING:
@@ -1812,11 +1811,11 @@ _module = globals()
 
 # 1. Mapping-only entries (no class)
 for _names_dict, _export_name, _reg_key in _MAPPING_ONLY:
-    _module[_export_name] = _LazyAutoMapping(CONFIG_MAPPING_NAMES, _names_dict, registry_key=_reg_key)
+    _module[_export_name] = _LazyAutoMapping(_reg_key)
 
 # 2. AutoModel classes
 for _cls_name, _names_dict, _export_name, _reg_key, _head_doc, _checkpoint in _AUTO_MODEL_TABLE:
-    _mapping = _LazyAutoMapping(CONFIG_MAPPING_NAMES, _names_dict, registry_key=_reg_key)
+    _mapping = _LazyAutoMapping(_reg_key)
     _module[_export_name] = _mapping
     _cls = type(_cls_name, (_BaseAutoModelClass,), {"_model_mapping": _mapping})
     if _head_doc is not None:
@@ -1850,9 +1849,7 @@ for _name in ("AutoModelForCausalLM", "AutoModelForImageTextToText"):
     _module[_name].from_pretrained = _make_generate_from_pretrained(_module[_name])
 
 # 4. AutoBackbone uses a different base class
-MODEL_FOR_BACKBONE_MAPPING = _LazyAutoMapping(
-    CONFIG_MAPPING_NAMES, MODEL_FOR_BACKBONE_MAPPING_NAMES, registry_key="backbone"
-)
+MODEL_FOR_BACKBONE_MAPPING = _LazyAutoMapping("backbone")
 
 
 class AutoBackbone(_BaseAutoBackboneClass):

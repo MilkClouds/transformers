@@ -36,7 +36,6 @@ from ...utils.hub import cached_file
 from ..encoder_decoder import EncoderDecoderConfig
 from .auto_factory import _LazyAutoMapping
 from .configuration_auto import (
-    CONFIG_MAPPING_NAMES,
     AutoConfig,
     config_class_to_model_type,
     replace_list_option_in_docstrings,
@@ -330,9 +329,7 @@ TOKENIZER_MAPPING_NAMES = OrderedDict[str, str | None](
     ]
 )
 
-TOKENIZER_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, TOKENIZER_MAPPING_NAMES, registry_key="tokenizer")
-
-CONFIG_TO_TYPE = {v: k for k, v in CONFIG_MAPPING_NAMES.items()}
+TOKENIZER_MAPPING = _LazyAutoMapping("tokenizer")
 
 
 def load_vocab(vocab_file):

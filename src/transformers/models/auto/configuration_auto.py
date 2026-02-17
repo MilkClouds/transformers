@@ -1116,53 +1116,57 @@ def config_class_to_model_type(config) -> str | None:
     return None
 
 
-class _LazyConfigMapping(OrderedDict[str, type[PreTrainedConfig]]):
-    """
-    A dictionary that lazily load its values when they are requested.
+class _ConfigMapping:
+    """Thin view over ``REGISTRY["config"]`` with third-party ``register()`` support.
+
+    Built-in entries live in the registry; third-party entries in ``_extra_content``.
     """
 
-    def __init__(self, mapping) -> None:
-        self._mapping = mapping
-        self._extra_content = {}
+    def __init__(self) -> None:
+        self._extra_content: dict[str, type[PreTrainedConfig]] = {}
 
-    def _get_registry(self):
-        """Lazy import to avoid circular dependency."""
+    @staticmethod
+    def _config_reg():
         from ..._registry import REGISTRY
 
-        return REGISTRY
+        return REGISTRY["config"]
 
     def __getitem__(self, key: str) -> type[PreTrainedConfig]:
         if key in self._extra_content:
             return self._extra_content[key]
-        if key not in self._mapping:
-            raise KeyError(key)
-        return self._get_registry()["config"][key]
+        return self._config_reg()[key]  # raises KeyError if missing
 
     def keys(self) -> list[str]:
-        return list(self._mapping.keys()) + list(self._extra_content.keys())
+        return list(self._config_reg().data.keys()) + list(self._extra_content.keys())
 
     def values(self) -> list[type[PreTrainedConfig]]:
-        return [self[k] for k in self._mapping] + list(self._extra_content.values())
+        reg = self._config_reg()
+        return [reg[k] for k in reg.data] + list(self._extra_content.values())
 
     def items(self) -> list[tuple[str, type[PreTrainedConfig]]]:
-        return [(k, self[k]) for k in self._mapping] + list(self._extra_content.items())
+        reg = self._config_reg()
+        return [(k, reg[k]) for k in reg.data] + list(self._extra_content.items())
 
     def __iter__(self) -> Iterator[str]:
-        return iter(list(self._mapping.keys()) + list(self._extra_content.keys()))
+        return iter(self.keys())
 
     def __contains__(self, item: object) -> bool:
-        return item in self._mapping or item in self._extra_content
+        return item in self._config_reg().data or item in self._extra_content
+
+    def __len__(self) -> int:
+        return len(self._config_reg().data) + len(self._extra_content)
+
+    def __bool__(self) -> bool:
+        return bool(len(self))
 
     def register(self, key: str, value: type[PreTrainedConfig], exist_ok=False) -> None:
-        """
-        Register a new configuration in this mapping.
-        """
-        if key in self._mapping and not exist_ok:
+        """Register a new configuration in this mapping."""
+        if key in self._config_reg().data and not exist_ok:
             raise ValueError(f"'{key}' is already used by a Transformers config, pick another name.")
         self._extra_content[key] = value
 
 
-CONFIG_MAPPING = _LazyConfigMapping(CONFIG_MAPPING_NAMES)
+CONFIG_MAPPING = _ConfigMapping()
 
 
 def _get_class_name(model_class: str | list[str]):

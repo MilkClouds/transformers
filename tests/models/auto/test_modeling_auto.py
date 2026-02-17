@@ -16,13 +16,12 @@ import copy
 import sys
 import tempfile
 import unittest
-from collections import OrderedDict
 from pathlib import Path
 
 import pytest
 
 import transformers
-from transformers import BertConfig, GPT2Model, is_torch_available
+from transformers import BertConfig, is_torch_available
 from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 from transformers.testing_utils import (
     DUMMY_UNKNOWN_IDENTIFIER,
@@ -496,20 +495,15 @@ class AutoModelTest(unittest.TestCase):
     def test_attr_not_existing(self):
         from transformers.models.auto.auto_factory import _LazyAutoMapping
 
-        _CONFIG_MAPPING_NAMES = OrderedDict([("bert", "BertConfig")])
-        _MODEL_MAPPING_NAMES = OrderedDict([("bert", "GhostModel")])
-        _MODEL_MAPPING = _LazyAutoMapping(_CONFIG_MAPPING_NAMES, _MODEL_MAPPING_NAMES)
-
-        with pytest.raises(ValueError, match=r"Could not find GhostModel neither in .* nor in .*!"):
-            _MODEL_MAPPING[BertConfig]
-
-        _MODEL_MAPPING_NAMES = OrderedDict([("bert", "BertModel")])
-        _MODEL_MAPPING = _LazyAutoMapping(_CONFIG_MAPPING_NAMES, _MODEL_MAPPING_NAMES)
+        # The "model" registry has "bert" → BertModel, so lookup via BertConfig should work
+        _MODEL_MAPPING = _LazyAutoMapping("model")
         self.assertEqual(_MODEL_MAPPING[BertConfig], BertModel)
 
-        _MODEL_MAPPING_NAMES = OrderedDict([("bert", "GPT2Model")])
-        _MODEL_MAPPING = _LazyAutoMapping(_CONFIG_MAPPING_NAMES, _MODEL_MAPPING_NAMES)
-        self.assertEqual(_MODEL_MAPPING[BertConfig], GPT2Model)
+        # Cross-model lookup: "causal_lm" registry has "gpt2" → GPT2LMHeadModel
+        _CAUSAL_LM_MAPPING = _LazyAutoMapping("causal_lm")
+        from transformers import GPT2Config, GPT2LMHeadModel
+
+        self.assertEqual(_CAUSAL_LM_MAPPING[GPT2Config], GPT2LMHeadModel)
 
     def test_custom_model_patched_generation_inheritance(self):
         """

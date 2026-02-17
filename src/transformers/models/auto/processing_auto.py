@@ -28,7 +28,6 @@ from ...utils import FEATURE_EXTRACTOR_NAME, PROCESSOR_NAME, VIDEO_PROCESSOR_NAM
 from ...video_processing_utils import BaseVideoProcessor
 from .auto_factory import _LazyAutoMapping
 from .configuration_auto import (
-    CONFIG_MAPPING_NAMES,
     AutoConfig,
     replace_list_option_in_docstrings,
 )
@@ -170,7 +169,7 @@ PROCESSOR_MAPPING_NAMES = OrderedDict(
     ]
 )
 
-PROCESSOR_MAPPING = _LazyAutoMapping(CONFIG_MAPPING_NAMES, PROCESSOR_MAPPING_NAMES, registry_key="processor")
+PROCESSOR_MAPPING = _LazyAutoMapping("processor")
 
 
 def processor_class_from_name(class_name: str):

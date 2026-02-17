@@ -37,7 +37,6 @@ from ...utils import (
 from ...utils.import_utils import requires
 from .auto_factory import _LazyAutoMapping
 from .configuration_auto import (
-    CONFIG_MAPPING_NAMES,
     AutoConfig,
     replace_list_option_in_docstrings,
 )
@@ -237,9 +236,7 @@ for model_type, (slow_class, fast_class) in IMAGE_PROCESSOR_MAPPING_NAMES.items(
 
     IMAGE_PROCESSOR_MAPPING_NAMES[model_type] = (slow_class, fast_class)
 
-IMAGE_PROCESSOR_MAPPING = _LazyAutoMapping(
-    CONFIG_MAPPING_NAMES, IMAGE_PROCESSOR_MAPPING_NAMES, registry_key="image_processor"
-)
+IMAGE_PROCESSOR_MAPPING = _LazyAutoMapping("image_processor")
 
 
 def get_image_processor_class_from_name(class_name: str):
